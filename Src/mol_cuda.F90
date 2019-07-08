@@ -47,6 +47,11 @@ module mol_cuda
    logical,device       :: lptmdutwob_d             ! flag for calulating dutobdy among moving particles
    real(8), device,allocatable :: utwobnew_d(:)
    real(8), device,allocatable :: utwobold_d(:)
+
+
+   integer(4) :: iinteractions
+   integer(4),device :: iinteractions_d
+   integer(4), device :: ierror_d
    
    contains
 
@@ -81,6 +86,7 @@ end subroutine AllocateDeviceParams
 
 subroutine TransferConstantParams
 
+        use Molmodule
         implicit none
         
         integer(4) :: istat
@@ -126,6 +132,7 @@ subroutine TransferConstantParams
         lellipsoid_d = lellipsoid
         lsuperball_d = lsuperball
         lptmdutwob_d = lptmdutwob
+        iinteractions_d = iinteractions
 
 end subroutine TransferConstantParams
 
