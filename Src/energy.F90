@@ -290,7 +290,8 @@ subroutine UTotal(iStage)
 
    integer(4) :: ip, ia
    real(8) :: fac, dx, dy, dz, virmolecule
-   integer(4) :: ierr, ierra !debugging
+   integer(4) :: ierr, ierra,ierror !debugging
+   integer(4) :: numblocks, sizeofblocks
 
    if (ltrace) call WriteTrace(1, txroutine, iStage)
 
@@ -341,6 +342,13 @@ subroutine UTotal(iStage)
 
 ! Transfer to Device
    call TransferVarParamsToDevice
+
+   ierror = 0
+   ierror_d = ierror
+   sizeofblocks = 512
+   numblocks = floor(Real((iinteractions-1)/sizeofblocks)) + 1
+
+
 
 
    if (lcharge) then   ! atoms possessing charges
