@@ -347,14 +347,14 @@ subroutine UTotal(iStage)
    ierror_d = ierror
    sizeofblocks = 512
    numblocks = floor(Real((iinteractions-1)/sizeofblocks)) + 1
-
+   print *,"numblocks: ", numblocks
 
 
 
    if (lcharge) then   ! atoms possessing charges
 
       if (lmonoatom) then
-        if (lvlist) call UTwoBodyA<<<1,1>>>
+        if (lvlist) call UTwoBodyA<<<numblocks,sizeofblocks>>>
        !debugging
           ierr = CudaGetLastError()
           ierra = cudaDeviceSynchronize()
@@ -368,6 +368,7 @@ subroutine UTotal(iStage)
           end if
         !Transfer to Host
            call TransferVarParamsToHost
+           call calcU
         !!!!!!!!!!!!!!!!!!!
          if (lllist) call UTwoBodyALList
          if (lCellList) call UTwoBodyACellList
@@ -480,59 +481,76 @@ attributes(global) subroutine UTwoBodyA
 
   ! character(40), parameter :: txroutine ='UTwoBodyA'
    integer(4) :: ip, iploc, ipt, jp, jploc, jpt, iptjpt, ibuf, Getnpmyid, istat
-   real(8)    :: dx, dy, dz, r2, d, usum, fsum, virtwob
+   real(8)    :: dx, dy, dz, r2, d,fsumr2, virtwob
+   integer(4) :: tidx, t, tidx_int
+   real(8), shared :: usum(512), fsum(512)
 
    !if (.not.lmonoatom_d) call Stop(txroutine, '.not.lmonoatom', uout)
 
    !if (ltime) call CpuAdd('start', txroutine, 2, uout)
-
+   tidx = blockDim%x * (blockIdx%x - 1) + threadIdx%x  !global thread index 1 ...
+   tidx_int = threadIDx%x
+   t = floor((sqrt(Real(4*np_d*(np_d-1)-8*(tidx)+1))-1)/2)
+   ip = np_d-t-1
+   jp = tidx-np_d*(np_d-1)/2+(t+1)*(t+2)/2+ip
 !print *, "virial: ", virial_d
-   do iploc = 1, np_d
-      ip = iploc
+   !do iploc = 1, np_d
+   !   ip = iploc
+     if (tidx <= iinteractions_d) then
       ipt = iptpn_d(ip)
-     do jploc = 1, nneighpn_d(iploc)
-         jp = jpnlist_d(jploc,iploc)
-         if (lmc_d) then
-            if (jp < ip) cycle
-         end if
+   !  do jploc = 1, nneighpn_d(iploc)
+   !      jp = jpnlist_d(jploc,iploc)
+   !      if (lmc_d) then
+   !         if (jp < ip) cycle
+   !      end if
          jpt = iptpn_d(jp)
          iptjpt = iptpt_d(ipt,jpt)
          dx = ro_d(1,ip)-ro_d(1,jp)
          dy = ro_d(2,ip)-ro_d(2,jp)
          dz = ro_d(3,ip)-ro_d(3,jp)
          call PBCr2_cuda(dx,dy,dz,r2)
-         if (r2 > rcut2_d) cycle
-         if (r2 < r2atat_d(iptjpt)) then
-            usum = 1d10                ! emulate hs overlap
+         if (r2 > rcut2_d) then
+
+         else if (r2 < r2atat_d(iptjpt)) then
+            usum(tidx_int) = 1d10                ! emulate hs overlap
          else if (r2 < r2umin_d(iptjpt)) then
            ! call StopUTwoBodyA
+           ierror_d = -1
          else
             ibuf = iubuflow_d(iptjpt)
             do
                if (r2 >= ubuf_d(ibuf)) exit
                ibuf = ibuf+12
               ! if (ibuf > nbuf_d) call StopIbuf('txptpt',iptjpt)
+                ierror_d = iptjpt
             end do
             d = r2-ubuf_d(ibuf)
-            usum = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+            usum(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
                    d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
-                    fsum = ubuf_d(ibuf+7)+d*(ubuf_d(ibuf+8)+d*(ubuf_d(ibuf+9)+ &
+                    fsum(tidx_int) = ubuf_d(ibuf+7)+d*(ubuf_d(ibuf+8)+d*(ubuf_d(ibuf+9)+ &
                            d*(ubuf_d(ibuf+10)+d*ubuf_d(ibuf+11))))
+                    !fsumr2 = -1.0* fsum * r2
+            !print *, ip, jp, usum with print it works
          end if
-         utwob_d(iptjpt) = utwob_d(iptjpt) + usum
-                 virtwob     = virtwob     - (fsum * r2)
+         !utwob_d(iptjpt) = utwob_d(iptjpt) + usum
+         !        virtwob     = virtwob     - (fsum * r2)
+         istat = atomicAdd(utwob_d(iptjpt),usum(tidx_int))
+         istat = atomicSub(virtwob_d,fsum(tidx_int) * r2)
+         !print *, "utwob: ", utwob_d(iptjpt)
      ! print *, "virtwob: ", virtwob
-      end do
-   end do
+   !   end do
+   !end do
 
    !utwob_d(0) = sum(utwob_d(1:nptpt_d))
-   do iploc = 1, nptpt_d
-        utwob_d(0) = utwob_d(0) + utwob_d(iploc)
-   end do
-   print *, utwob_d(0)
+   !if (tidx == 1) then
+   !        do iploc = 1, nptpt_d
+   !             utwob_d(0) = utwob_d(0) + utwob_d(iploc)
+   !        end do
+   !       print *, utwob_d(0)
 
-   utot_d     = utot_d     + utwob_d(0)
-   virial_d    = virial_d    + virtwob
+   !        utot_d     = utot_d     + utwob_d(0)
+   !end if
+end if
 !print *, "virial: ", virial_d
 
    !if (ltime) call CpuAdd('stop', txroutine, 2, uout)
@@ -578,6 +596,25 @@ attributes(global) subroutine UTwoBodyA
 
 
 end subroutine UTwoBodyA
+
+subroutine calcU
+
+     use Molmodule
+     use mol_cuda
+     use Energymodule
+     implicit none
+     integer(4) :: i
+     real(8)    :: virtwob
+
+     virtwob = virtwob_d
+     virial = virial + virtwob
+     u%twob(0) = sum(u%twob(1:nptpt))
+     u%tot = u%tot + u%twob(0)
+     do i = 1, nptpt
+        print *, "utwob: ", i, u%twob(i)
+     end do
+     print *, "virial: ", virial
+end subroutine calcU
 
 !........................................................................
 
