@@ -3,7 +3,7 @@ module mol_cuda
     use Molmodule
     use cudafor
     implicit none
-
+   logical :: lcuda
 
    real(8),    constant :: ThreeHalf_d = 1.5d0
    real(8),    constant :: SqTwo_d       = sqrt(Two)
@@ -34,6 +34,7 @@ module mol_cuda
    integer(4),device, allocatable :: iubuflow_d(:)  ! points on the first entry for iatjat
    real(8), device,allocatable :: utwob_d(:)
    real(8), device  :: utot_d
+   real(8), device  :: virtwob_d
 
 !... in DuTotal
    logical, device      :: lhsoverlap_d
@@ -47,6 +48,7 @@ module mol_cuda
    logical,device       :: lptmdutwob_d             ! flag for calulating dutobdy among moving particles
    real(8), device,allocatable :: utwobnew_d(:)
    real(8), device,allocatable :: utwobold_d(:)
+ !  real(8), allocatable :: utwobold(:)
 
 
    integer(4) :: iinteractions
@@ -65,21 +67,22 @@ subroutine AllocateDeviceParams
         integer(4) :: istat
 
         allocate(iptpt_d(npt,npt))
-        allocate(jpnlist_d(maxnneigh,np))
+        allocate(jpnlist_d(maxnneigh,npartperproc))
         allocate(utwob_d(0:nptpt))
-        allocate(ro_d(3,np))
-        allocate(r2umin_d(nptpt))
+        allocate(ro_d(3,np_alloc))
+        allocate(r2umin_d(natat))
         allocate(r2atat_d(natat))
-        allocate(iubuflow_d(nptpt))
-        allocate(nneighpn_d(np))
-        allocate(iptpn_d(np))
+        allocate(iubuflow_d(natat))
+        allocate(nneighpn_d(np_alloc))
+        allocate(iptpn_d(np_alloc))
         allocate(ubuf_d(nbuf))
-        allocate(rotm_d(3,np))
+        allocate(rotm_d(3,np_alloc))
         allocate(lptm_d(np_alloc))
         allocate(ipnptm_d(np_alloc))
         allocate(dutwob_d(0:nptpt))
         allocate(utwobnew_d(0:nptpt))
         allocate(utwobold_d(0:nptpt))
+       ! allocate(utwobold(0:nptpt))
 
 
 end subroutine AllocateDeviceParams
@@ -134,6 +137,8 @@ subroutine TransferConstantParams
         lptmdutwob_d = lptmdutwob
         iinteractions_d = iinteractions
 
+        lcuda = .true.
+
 end subroutine TransferConstantParams
 
 subroutine TransferVarParamsToDevice
@@ -145,12 +150,15 @@ subroutine TransferVarParamsToDevice
         !istat = cudaMemcpy2D(ro_d,ro,3*np)
 
         ro_d =ro
-        utwob_d = u%twob
+        !utwob_d = u%twob
+        utwob_d = 0.0
+        virtwob_d = 0.0
         virial_d = virial
         !istat = cudaMemcpy(nneighpn_d,nneighpn,np)
         nneighpn_d = nneighpn
         jpnlist_d = jpnlist
         utot_d = u%tot
+        virtwob_d = 0.0
 
         !istat = cudaMemcpy(nneighpn_d, nneighpn,np)
         !istat = cudaMemcpy(jpnlist_d,jpnlist,maxnneigh*np)
@@ -165,33 +173,47 @@ subroutine TransferVarParamsToHost
 
         !istat = cudaMemcpy(ro_d,ro,3*np)
         !ro = ro_d
-        virial = virial_d
-        u%tot = utot_d
+        !virial = virial_d
+        !u%tot = utot_d
         u%twob = utwob_d
 end subroutine TransferVarParamsToHost
 
 subroutine TransferDUTotalVarToDevice
 
         use NListModule
+        use Energymodule
+        use Molmodule
         implicit none
         !logical, intent(in) :: lhsoverlap
 
-        dutwob_d = du%twob
+       ! dutwob_d = du%twob
         nptm_d = nptm
         ipnptm_d = ipnptm
         nneighpn_d = nneighpn
         lptm_d = lptm
         rotm_d = rotm
         ro_d = ro
+        utwobnew_d(0:nptpt) = Zero
+        dutwob_d(0:nptpt) = Zero
+        utwobold_d(0:nptpt) = Zero
+        utwobold(0:nptpt) = Zero
 
 end subroutine TransferDUTotalVarToDevice
 
 subroutine TransferDUTotalVarToHost
 
+        use Molmodule
+        use Energymodule
         implicit none
+        integer(4) :: i
         !logical, intent(inout) :: lhsoverlap
-
-        du%twob = dutwob_d
+        utwobold = utwobold_d
+        do i = 1, nptpt
+           du%twob(i) = du%twob(i) - utwobold(i)
+           print *, "du%tw: ", du%twob(i)
+        end do
+        du%twob(0) = sum(du%twob(1:nptpt))
+        print *, du%twob(0)
 
 
 end subroutine TransferDUTotalVarToHost
