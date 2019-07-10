@@ -261,7 +261,6 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
    if (ltime) call CpuAdd('start', txroutine, 2, uout)
 
    du%twob(0:nptpt) = Zero                      ! initiate
-   lcuda = .true.
    if (lcuda) then
            call TransferDUTotalVarToDevice
            sizeofblocks = 512
@@ -269,13 +268,13 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
            lhsoverlap = .false.
            lhsoverlap_d = lhsoverlap
            print *, "numblocks: ", numblocks
-           call utwobodynew<<<numblocks,sizeofblocks>>>(lhsoverlap_d)                ! calculate new two-body potential energy
+           call UTwoBodyANew_cuda<<<numblocks,sizeofblocks>>>(lhsoverlap_d)                ! calculate new two-body potential energy
            lhsoverlap = lhsoverlap_d
            du%twob = utwobnew_d
            du%twob(0) = sum(du%twob(1:nptpt))
            dutwob_d = du%twob
    else
-           call UTwoBodyANew_cpu(lhsoverlap,jp)
+           call utwobodynew(lhsoverlap,jp)
    end if
 #if defined (_PAR_)
    call par_allreduce_logical(lhsoverlap, laux)
@@ -285,6 +284,7 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
 
    utwobold_d(0:nptpt) = Zero
    call twobodyold<<<numblocks,sizeofblocks>>>                               ! calculate old two-body potential energy
+ 
 
    call TransferDUTotalVarToHost
    du%tot = du%tot + du%twob(0)                ! update
@@ -303,7 +303,7 @@ end subroutine DUTwoBody
 
 !     only monoatomic particles
 
-attributes(global) subroutine UTwoBodyANew(lhsoverlap)
+attributes(global) subroutine UTwoBodyANew_cuda(lhsoverlap)
 
    use EnergyModule
    use mol_cuda
@@ -437,9 +437,9 @@ attributes(global) subroutine UTwoBodyANew(lhsoverlap)
 
   400 continue
 
-end subroutine UTwoBodyANew
+end subroutine UTwoBodyANew_cuda
 
-subroutine UTwoBodyANew_cpu(lhsoverlap,jp)
+subroutine UTwoBodyANew(lhsoverlap,jp)
 
    use EnergyModule
    implicit none
@@ -542,7 +542,7 @@ subroutine UTwoBodyANew_cpu(lhsoverlap,jp)
 
   400 continue
 
-end subroutine UTwoBodyANew_cpu
+end subroutine UTwoBodyANew
 !************************************************************************
 !> \page denergy denergy.F90
 !! **UTwoBodyAOld**
