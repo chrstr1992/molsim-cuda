@@ -344,12 +344,14 @@ attributes(global) subroutine UTwoBodyANew(lhsoverlap)
          dx = rotm_d(1,iploc)-ro_d(1,jp)
          dy = rotm_d(2,iploc)-ro_d(2,jp)
          dz = rotm_d(3,iploc)-ro_d(3,jp)
-        else
+        else if (ip < jp) then
           do jploc = 1, nptm_d
             dx = rotm_d(1,iploc)-rotm_d(1,jploc)
             dy = rotm_d(2,iploc)-rotm_d(2,jploc)
             dz = rotm_d(3,iploc)-rotm_d(3,jploc)
           end do
+        else 
+           goto 400
         end if
          call PBCr2_cuda(dx,dy,dz,r2)
         ! print *, "ip: ",ip, jp, r2
@@ -434,7 +436,7 @@ attributes(global) subroutine UTwoBodyANew(lhsoverlap)
 
    !lhsoverlap =.false.
 
- ! 400 continue
+  400 continue
 
 end subroutine UTwoBodyANew
 
@@ -601,6 +603,8 @@ attributes(global) subroutine UTwoBodyAOld
    !         dy = ro_d(2,iploc)-ro_d(2,jploc)
    !         dz = ro_d(3,iploc)-ro_d(3,jploc)
    !       end do
+   !     else
+   !         goto 400
    !     end if
    !      call PBCr2_cuda(dx,dy,dz,r2)
    !     ! print *, "ip: ",ip, jp, r2
@@ -627,7 +631,6 @@ attributes(global) subroutine UTwoBodyAOld
    !                        d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
 
          !print *, "ip: ",ip, jp,r2, usum(tidx_int)
-              !utwobnew_d(iptjpt) = utwobnew_d(iptjpt) + usum
    !           istat = atomicAdd(utwobold_d(iptjpt),usum) 
    !       end if
    !     end if
