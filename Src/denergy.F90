@@ -253,23 +253,37 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
                                                 ! =.false. no hard-core overlap
 
    character(40), parameter :: txroutine ='DUTwoBody'
-   integer(4),device :: jp
+   integer(4) :: jp, i
+   integer(4) :: numblocks, sizeofblocks
    external utwobodynew
    external twobodyold
 
    if (ltime) call CpuAdd('start', txroutine, 2, uout)
 
    du%twob(0:nptpt) = Zero                      ! initiate
-   call TransferDUTotalVarToDevice
-   lhsoverlap_d = lhsoverlap
-   call utwobodynew<<<1,1>>>(lhsoverlap_d,jp)                ! calculate new two-body potential energy
-   lhsoverlap = lhsoverlap_d
+   lcuda = .true.
+   if (lcuda) then
+           call TransferDUTotalVarToDevice
+           sizeofblocks = 512
+           numblocks = floor(Real((nptm*np)/sizeofblocks)) + 1
+           lhsoverlap = .false.
+           lhsoverlap_d = lhsoverlap
+           print *, "numblocks: ", numblocks
+           call utwobodynew<<<numblocks,sizeofblocks>>>(lhsoverlap_d)                ! calculate new two-body potential energy
+           lhsoverlap = lhsoverlap_d
+           du%twob = utwobnew_d
+           du%twob(0) = sum(du%twob(1:nptpt))
+           dutwob_d = du%twob
+   else
+           call UTwoBodyANew_cpu(lhsoverlap,jp)
+   end if
 #if defined (_PAR_)
    call par_allreduce_logical(lhsoverlap, laux)
 #endif
 
    if (lhsoverlap) goto 400                     ! check hard-core overlap
 
+   utwobold_d(0:nptpt) = Zero
    call twobodyold<<<1,1>>>                               ! calculate old two-body potential energy
 
    call TransferDUTotalVarToHost
@@ -289,7 +303,7 @@ end subroutine DUTwoBody
 
 !     only monoatomic particles
 
-attributes(global) subroutine UTwoBodyANew(lhsoverlap,jp)
+attributes(global) subroutine UTwoBodyANew(lhsoverlap)
 
    use EnergyModule
    use mol_cuda
@@ -297,108 +311,237 @@ attributes(global) subroutine UTwoBodyANew(lhsoverlap,jp)
    implicit none
 
    logical,    intent(out) :: lhsoverlap
-   integer(4), intent(out) :: jp
 
    !character(40), parameter :: txroutine ='UTwoBodyANew'
 
-   integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf
+   integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf,jp, i
    real(8)    :: dx, dy, dz, r2, d, usum
+   integer(4) :: tidx, t, tidx_int, istat
+   !real(8), shared :: usum(512)
 !   logical    :: EllipsoidOverlap, SuperballOverlap
+   tidx = blockDim%x * (blockIdx%x - 1) + threadIdx%x  !global thread index 1 ...
+   tidx_int = threadIDx%x
+   iploc = ceiling(real((tidx-1)/np_d))+1
+   if (iploc <= nptm_d) then
+      ip = ipnptm_d(iploc)
+   end if
+   jp = mod(tidx-1,np_d)+1
 
 !   if (.not.lmonoatom) call Stop(txroutine, '.not.lmonoatom', uout)
 
 !   write(uout,*) txroutine
 
-   utwobnew_d(0:nptpt_d) = Zero
-   dutwob_d(0:nptpt_d) = Zero
-   lhsoverlap =.true.
+   !utwobnew_d(0:nptpt_d) = Zero
+   !dutwob_d(0:nptpt_d) = Zero
+   !lhsoverlap =.true.
 
-   do iploc = 1, nptm_d
-      ip = ipnptm_d(iploc)
+   if (tidx <= nptm_d*np_d) then
       ipt = iptpn_d(ip)
-!      write(uout,'(a,i5,3f10.5)') 'ip,rotm(1:3,iploc)',ip, rotm(1:3,iploc)
-
-      do jploc = 1, nneighpn_d(ip)
-         jp = jpnlist_d(jploc,ip)
-         if (lptm_d(jp)) cycle
+        if ( ip /= jp ) then
          jpt = iptpn_d(jp)
          iptjpt = iptpt_d(ipt,jpt)
+        if (.not. lptm_d(jp)) then
          dx = rotm_d(1,iploc)-ro_d(1,jp)
          dy = rotm_d(2,iploc)-ro_d(2,jp)
          dz = rotm_d(3,iploc)-ro_d(3,jp)
+        else
+          do jploc = 1, nptm_d
+            dx = rotm_d(1,iploc)-rotm_d(1,jploc)
+            dy = rotm_d(2,iploc)-rotm_d(2,jploc)
+            dz = rotm_d(3,iploc)-rotm_d(3,jploc)
+          end do
+        end if
          call PBCr2_cuda(dx,dy,dz,r2)
+        ! print *, "ip: ",ip, jp, r2
          if (lellipsoid_d) Then
            ! if (EllipsoidOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp),radellipsoid2,aellipsoid)) goto 400
          end if
          if (lsuperball_d) Then
            ! if (SuperballOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp))) goto 400
          end if
-         if (r2 > rcut2_d) cycle
-         if (r2 < r2atat_d(iptjpt)) goto 400
-
-         if (r2 < r2umin_d(iptjpt)) goto 400       ! outside lower end
-         ibuf = iubuflow_d(iptjpt)
-         do
-            if (r2 >= ubuf_d(ibuf)) exit
-            ibuf = ibuf+12
-         end do
-         d = r2-ubuf_d(ibuf)
-         usum = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+         if (r2 > rcut2_d) then
+             !do not anything
+         else if (r2 < r2atat_d(iptjpt))then
+               lhsoverlap = .true.
+         else if (r2 < r2umin_d(iptjpt))then       ! outside lower end
+               lhsoverlap = .true.
+         else
+              ibuf = iubuflow_d(iptjpt)
+              do
+                 if (r2 >= ubuf_d(ibuf)) exit
+                    ibuf = ibuf+12
+                 end do
+              d = r2-ubuf_d(ibuf)
+              usum = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
                            d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
 
-         utwobnew_d(iptjpt) = utwobnew_d(iptjpt) + usum
+         !print *, "ip: ",ip, jp,r2, usum(tidx_int)
+              !utwobnew_d(iptjpt) = utwobnew_d(iptjpt) + usum
+              istat = atomicAdd(utwobnew_d(iptjpt),usum) 
+          end if
+        end if
+     end if
+   !if (tidx == 1) then
+   !do i =1, nptpt_d
+   !     utwobnew_d(0) = utwobnew_d(0) + utwobnew_d(i)
+   !     dutwob_d(i) = utwobnew_d(i)
+      !  print *, "utwobnew: ", i, utwobnew_d(i)
+   !end do
+   !end if
+   !dutwob_d(0) = utwobnew_d(0)
+     !   print *, "lhsover: ", lhsoverlap
+!         write(uout,'(a,i5,6f10.5)') 'jp,ro(1:3,jp), r2, usum, utwobnew(iptjpt)',jp, ro(1:3,jp), r2, usum, utwobnew(iptjpt)
+      !end do
+   !end do
+
+! ... contribution from pairs where both particles are displaced
+
+ !  if (lptmdutwob_d) then      ! not adapted for _PAR_ !!
+ !     do iploc = 1, nptm_d
+ !        ip = ipnptm_d(iploc)
+ !        ipt = iptpn_d(ip)
+ !        do jploc = iploc+1, nptm_d
+ !           jp = ipnptm_d(jploc)
+ !           jpt = iptpn_d(jp)
+ !           iptjpt = iptpt_d(ipt,jpt)
+ !           dx = rotm_d(1,iploc)-rotm_d(1,jploc)
+ !           dy = rotm_d(2,iploc)-rotm_d(2,jploc)
+ !           dz = rotm_d(3,iploc)-rotm_d(3,jploc)
+ !           call PBCr2_cuda(dx,dy,dz,r2)
+ !           if (lellipsoid_d) Then
+                !if (EllipsoidOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),oritm(1,1,jploc),radellipsoid2,aellipsoid)) goto 400
+            !end if
+            !if (lsuperball_d) Then
+               !if (SuperballOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),oritm(1,1,jploc))) goto 400
+            !end if
+            !if (r2 > rcut2_d) cycle
+            !if (r2 < r2atat_d(iptjpt)) goto 400
+
+            !if (r2 < r2umin_d(iptjpt)) goto 400       ! outside lower end
+            !ibuf = iubuflow_d(iptjpt)
+            !do
+            !   if (r2 >= ubuf_d(ibuf)) exit
+            !   ibuf = ibuf+12
+           ! end do
+           ! d = r2-ubuf_d(ibuf)
+            !usum = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                           !   d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
+
+            !dutwob_d(iptjpt) = dutwob_d(iptjpt) + usum
+         !end do
+      !end do
+   !end if
+
+   !lhsoverlap =.false.
+
+ ! 400 continue
+
+end subroutine UTwoBodyANew
+
+subroutine UTwoBodyANew_cpu(lhsoverlap,jp)
+
+   use EnergyModule
+   implicit none
+
+   logical,    intent(out) :: lhsoverlap
+   integer(4), intent(out) :: jp
+
+   character(40), parameter :: txroutine ='UTwoBodyANew'
+
+   integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf
+   real(8)    :: dx, dy, dz, r2, d, usum
+   logical    :: EllipsoidOverlap, SuperballOverlap
+
+   if (.not.lmonoatom) call Stop(txroutine, '.not.lmonoatom', uout)
+
+!   write(uout,*) txroutine
+
+   utwobnew(0:nptpt) = Zero
+   lhsoverlap =.true.
+
+   do iploc = 1, nptm
+      ip = ipnptm(iploc)
+      ipt = iptpn(ip)
+!      write(uout,'(a,i5,3f10.5)') 'ip,rotm(1:3,iploc)',ip, rotm(1:3,iploc)
+
+      do jploc = 1, nneighpn(ip)
+         jp = jpnlist(jploc,ip)
+         if (lptm(jp)) cycle
+         jpt = iptpn(jp)
+         iptjpt = iptpt(ipt,jpt)
+         dx = rotm(1,iploc)-ro(1,jp)
+         dy = rotm(2,iploc)-ro(2,jp)
+         dz = rotm(3,iploc)-ro(3,jp)
+         call PBCr2(dx,dy,dz,r2)
+         if (lellipsoid) Then
+            if (EllipsoidOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp),radellipsoid2,aellipsoid)) goto 400
+         end if
+         if (lsuperball) Then
+            if (SuperballOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp))) goto 400
+         end if
+         if (r2 > rcut2) cycle
+         if (r2 < r2atat(iptjpt)) goto 400
+
+         if (r2 < r2umin(iptjpt)) goto 400       ! outside lower end
+         ibuf = iubuflow(iptjpt)
+         do
+            if (r2 >= ubuf(ibuf)) exit
+            ibuf = ibuf+12
+         end do
+         d = r2-ubuf(ibuf)
+         usum = ubuf(ibuf+1)+d*(ubuf(ibuf+2)+d*(ubuf(ibuf+3)+ &
+                           d*(ubuf(ibuf+4)+d*(ubuf(ibuf+5)+d*ubuf(ibuf+6)))))
+
+         utwobnew(iptjpt) = utwobnew(iptjpt) + usum
 !         write(uout,'(a,i5,6f10.5)') 'jp,ro(1:3,jp), r2, usum, utwobnew(iptjpt)',jp, ro(1:3,jp), r2, usum, utwobnew(iptjpt)
       end do
    end do
 
 ! ... contribution from pairs where both particles are displaced
 
-   if (lptmdutwob_d) then      ! not adapted for _PAR_ !!
-      do iploc = 1, nptm_d
-         ip = ipnptm_d(iploc)
-         ipt = iptpn_d(ip)
-         do jploc = iploc+1, nptm_d
-            jp = ipnptm_d(jploc)
-            jpt = iptpn_d(jp)
-            iptjpt = iptpt_d(ipt,jpt)
-            dx = rotm_d(1,iploc)-rotm_d(1,jploc)
-            dy = rotm_d(2,iploc)-rotm_d(2,jploc)
-            dz = rotm_d(3,iploc)-rotm_d(3,jploc)
-            call PBCr2_cuda(dx,dy,dz,r2)
-            if (lellipsoid_d) Then
-                !if (EllipsoidOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),oritm(1,1,jploc),radellipsoid2,aellipsoid)) goto 400
+   if (lptmdutwob) then      ! not adapted for _PAR_ !!
+      do iploc = 1, nptm
+         ip = ipnptm(iploc)
+         ipt = iptpn(ip)
+         do jploc = iploc+1, nptm
+            jp = ipnptm(jploc)
+            jpt = iptpn(jp)
+            iptjpt = iptpt(ipt,jpt)
+            dx = rotm(1,iploc)-rotm(1,jploc)
+            dy = rotm(2,iploc)-rotm(2,jploc)
+            dz = rotm(3,iploc)-rotm(3,jploc)
+            call PBCr2(dx,dy,dz,r2)
+            if (lellipsoid) Then
+                if (EllipsoidOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),oritm(1,1,jploc),radellipsoid2,aellipsoid)) goto 400
             end if
-            if (lsuperball_d) Then
-               !if (SuperballOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),oritm(1,1,jploc))) goto 400
+            if (lsuperball) Then
+               if (SuperballOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),oritm(1,1,jploc))) goto 400
             end if
-            if (r2 > rcut2_d) cycle
-            if (r2 < r2atat_d(iptjpt)) goto 400
+            if (r2 > rcut2) cycle
+            if (r2 < r2atat(iptjpt)) goto 400
 
-            if (r2 < r2umin_d(iptjpt)) goto 400       ! outside lower end
-            ibuf = iubuflow_d(iptjpt)
+            if (r2 < r2umin(iptjpt)) goto 400       ! outside lower end
+            ibuf = iubuflow(iptjpt)
             do
-               if (r2 >= ubuf_d(ibuf)) exit
+               if (r2 >= ubuf(ibuf)) exit
                ibuf = ibuf+12
             end do
-            d = r2-ubuf_d(ibuf)
-            usum = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
-                              d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
+            d = r2-ubuf(ibuf)
+            usum = ubuf(ibuf+1)+d*(ubuf(ibuf+2)+d*(ubuf(ibuf+3)+ &
+                              d*(ubuf(ibuf+4)+d*(ubuf(ibuf+5)+d*ubuf(ibuf+6)))))
 
-            dutwob_d(iptjpt) = dutwob_d(iptjpt) + usum
+            utwobnew(iptjpt) = utwobnew(iptjpt) + usum
          end do
       end do
    end if
 
-   do iploc =1, nptpt_d
-        utwobnew_d(0) = utwobnew_d(0) + utwobnew_d(iploc)
-   end do
-   dutwob_d(0:nptpt_d) = dutwob_d(0:nptpt_d) + utwobnew_d(0:nptpt_d)
+   utwobnew(0) = sum(utwobnew(1:nptpt))
+   du%twob(0:nptpt) = du%twob(0:nptpt) + utwobnew(0:nptpt)
    lhsoverlap =.false.
 
   400 continue
 
-end subroutine UTwoBodyANew
-
+end subroutine UTwoBodyANew_cpu
 !************************************************************************
 !> \page denergy denergy.F90
 !! **UTwoBodyAOld**
@@ -415,13 +558,89 @@ attributes(global) subroutine UTwoBodyAOld
    implicit none
 
 !   character(40), parameter :: txroutine ='UTwoBodyAOld'
-   integer(4) :: ip, iploc, ipt, jp, jploc, jpt, iptjpt, ibuf
-   real(8)    :: dx, dy, dz, r2, d, usum
 !   logical    :: EllipsoidOverlap, SuperballOverlap
 
 !   if (.not.lmonoatom) call Stop(txroutine, '.not.lmonoatom', uout)
 
-   utwobold_d(0:nptpt_d) = Zero
+   !utwobold_d(0:nptpt_d) = Zero
+
+
+   integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf,jp, i
+   real(8)    :: dx, dy, dz, r2, d, usum
+   integer(4) :: tidx, t, tidx_int, istat
+   !!real(8), shared :: usum(512)
+!  ! logical    :: EllipsoidOverlap, SuperballOverlap
+   !tidx = blockDim%x * (blockIdx%x - 1) + threadIdx%x  !global thread index 1 ...
+   !tidx_int = threadIDx%x
+   !iploc = ceiling(real((tidx-1)/np_d))+1
+   !if (iploc <= nptm_d) then
+   !   ip = ipnptm_d(iploc)
+   !end if
+   !jp = mod(tidx-1,np_d)+1
+
+!  ! if (.not.lmonoatom) call Stop(txroutine, '.not.lmonoatom', uout)
+
+!  ! write(uout,*) txroutine
+
+   !utwobnew_d(0:nptpt_d) = Zero
+   !dutwob_d(0:nptpt_d) = Zero
+   !lhsoverlap =.true.
+
+   !if (tidx <= nptm_d*np_d) then
+   !   ipt = iptpn_d(ip)
+   !     if ( ip /= jp ) then
+   !      jpt = iptpn_d(jp)
+   !      iptjpt = iptpt_d(ipt,jpt)
+   !     if (.not. lptm_d(jp)) then
+   !      dx = ro_d(1,iploc)-ro_d(1,jp)
+   !      dy = ro_d(2,iploc)-ro_d(2,jp)
+   !      dz = ro_d(3,iploc)-ro_d(3,jp)
+   !     else if (ip < jp) then
+   !       do jploc = 1, nptm_d
+   !         dx = ro_d(1,iploc)-ro_d(1,jploc)
+   !         dy = ro_d(2,iploc)-ro_d(2,jploc)
+   !         dz = ro_d(3,iploc)-ro_d(3,jploc)
+   !       end do
+   !     end if
+   !      call PBCr2_cuda(dx,dy,dz,r2)
+   !     ! print *, "ip: ",ip, jp, r2
+   !      if (lellipsoid_d) Then
+   !        ! if (EllipsoidOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp),radellipsoid2,aellipsoid)) goto 400
+   !      end if
+   !      if (lsuperball_d) Then
+   !        ! if (SuperballOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp))) goto 400
+   !      end if
+   !      if (r2 > rcut2_d) then
+   !          !do not anything
+   !      else if (r2 < r2atat_d(iptjpt)) then
+   !           ! lhsoverlap = .true.
+   !      else if (r2 < r2umin_d(iptjpt)) then      ! outside lower end
+   !           ! lhsoverlap = .true.
+   !      else
+   !           ibuf = iubuflow_d(iptjpt)
+   !           do
+   !              if (r2 >= ubuf_d(ibuf)) exit
+   !                 ibuf = ibuf+12
+   !              end do
+   !           d = r2-ubuf_d(ibuf)
+   !           usum = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+   !                        d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
+
+         !print *, "ip: ",ip, jp,r2, usum(tidx_int)
+              !utwobnew_d(iptjpt) = utwobnew_d(iptjpt) + usum
+   !           istat = atomicAdd(utwobold_d(iptjpt),usum) 
+   !       end if
+   !     end if
+    ! end if
+
+
+
+
+
+
+
+
+
 
    do iploc = 1, nptm_d
       ip = ipnptm_d(iploc)
@@ -461,46 +680,46 @@ attributes(global) subroutine UTwoBodyAOld
 
 ! ... contribution from pairs where both particles are displaced
 
-   if (lptmdutwob_d) then      ! not adapted for _PAR_ !!
-      do iploc = 1, nptm_d
-         ip = ipnptm_d(iploc)
-         ipt = iptpn_d(ip)
-         do jploc = iploc+1, nptm_d
-            jp = ipnptm_d(jploc)
-            jpt = iptpn_d(jp)
-            iptjpt = iptpt_d(ipt,jpt)
-            dx = ro_d(1,ip)-ro_d(1,jp)
-            dy = ro_d(2,ip)-ro_d(2,jp)
-            dz = ro_d(3,ip)-ro_d(3,jp)
-            call PBCr2_cuda(dx,dy,dz,r2)
-            if (r2 > rcut2_d) cycle
-            if (lellipsoid_d) Then
+  ! if (lptmdutwob_d) then      ! not adapted for _PAR_ !!
+  !    do iploc = 1, nptm_d
+  !       ip = ipnptm_d(iploc)
+  !       ipt = iptpn_d(ip)
+  !       do jploc = iploc+1, nptm_d
+  !          jp = ipnptm_d(jploc)
+  !          jpt = iptpn_d(jp)
+  !          iptjpt = iptpt_d(ipt,jpt)
+  !          dx = ro_d(1,ip)-ro_d(1,jp)
+  !          dy = ro_d(2,ip)-ro_d(2,jp)
+  !          dz = ro_d(3,ip)-ro_d(3,jp)
+  !          call PBCr2_cuda(dx,dy,dz,r2)
+  !          if (r2 > rcut2_d) cycle
+  !          if (lellipsoid_d) Then
                !if (EllipsoidOverlap(r2,[dx,dy,dz],ori(1,1,ip),ori(1,1,jp),radellipsoid2,aellipsoid)) goto 400
-            end if
-            if (lsuperball_d) Then
+ !           end if
+ !           if (lsuperball_d) Then
               ! if (SuperballOverlap(r2,[dx,dy,dz],ori(1,1,ip),ori(1,1,jp))) goto 400
-            end if
-            if (r2 < r2atat_d(iptjpt)) goto 400
+ !           end if
+ !           if (r2 < r2atat_d(iptjpt)) goto 400
 
-            if (r2 < r2umin_d(iptjpt)) goto 400       ! outside lower end
-            ibuf = iubuflow_d(iptjpt)
-            do
-               if (r2 >= ubuf_d(ibuf)) exit
-               ibuf = ibuf+12
-            end do
-            d = r2-ubuf_d(ibuf)
-            usum = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
-                              d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
+ !           if (r2 < r2umin_d(iptjpt)) goto 400       ! outside lower end
+ !           ibuf = iubuflow_d(iptjpt)
+ !           do
+ !              if (r2 >= ubuf_d(ibuf)) exit
+ !              ibuf = ibuf+12
+ !           end do
+ !           d = r2-ubuf_d(ibuf)
+ !           usum = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+ !                             d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
 
-            utwobold_d(iptjpt) = utwobold_d(iptjpt) + usum
-         end do
-      end do
-   end if
+ !           utwobold_d(iptjpt) = utwobold_d(iptjpt) + usum
+ !        end do
+ !     end do
+ !  end if
 
-   do iploc =1 , nptpt_d
-        utwobold_d(0) = utwobold_d(0) + utwobold_d(iploc)
-   end do
-   dutwob_d(0:nptpt_d) = dutwob_d(0:nptpt_d) - utwobold_d(0:nptpt_d)
+ !  do iploc =1 , nptpt_d
+ !       utwobold_d(0) = utwobold_d(0) + utwobold_d(iploc)
+ !  end do
+ !  dutwob_d(0:nptpt_d) = dutwob_d(0:nptpt_d) - utwobold_d(0:nptpt_d)
 
   400 continue
 
