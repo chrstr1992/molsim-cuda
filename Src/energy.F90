@@ -480,10 +480,13 @@ attributes(global) subroutine UTwoBodyA
    implicit none
 
   ! character(40), parameter :: txroutine ='UTwoBodyA'
-   integer(4) :: ip, iploc, ipt, jp, jploc, jpt, iptjpt, ibuf, Getnpmyid, istat
-   real(8)    :: dx, dy, dz, r2, d,fsumr2, virtwob
+   integer(4) :: ip, iploc, ipt, jp, jploc, jpt, iptjpt, ibuf, Getnpmyid,istat
+   integer(4) :: i
+   real(8)    :: dx, dy, dz, r2, d !, usum, fsum
    integer(4) :: tidx, t, tidx_int
    real(8), shared :: usum(512), fsum(512)
+   real(8) :: fsum_aux, usum_aux(0:nptpt_d)
+   integer(4),shared :: iptjpt_arr(512)
 
    !if (.not.lmonoatom_d) call Stop(txroutine, '.not.lmonoatom', uout)
 
@@ -493,18 +496,12 @@ attributes(global) subroutine UTwoBodyA
    t = floor((sqrt(Real(4*np_d*(np_d-1)-8*(tidx)+1))-1)/2)
    ip = np_d-t-1
    jp = tidx-np_d*(np_d-1)/2+(t+1)*(t+2)/2+ip
-!print *, "virial: ", virial_d
-   !do iploc = 1, np_d
-   !   ip = iploc
+
      if (tidx <= iinteractions_d) then
       ipt = iptpn_d(ip)
-   !  do jploc = 1, nneighpn_d(iploc)
-   !      jp = jpnlist_d(jploc,iploc)
-   !      if (lmc_d) then
-   !         if (jp < ip) cycle
-   !      end if
          jpt = iptpn_d(jp)
          iptjpt = iptpt_d(ipt,jpt)
+         iptjpt_arr(tidx_int) = iptjpt
          dx = ro_d(1,ip)-ro_d(1,jp)
          dy = ro_d(2,ip)-ro_d(2,jp)
          dz = ro_d(3,ip)-ro_d(3,jp)
@@ -512,6 +509,7 @@ attributes(global) subroutine UTwoBodyA
          if (r2 > rcut2_d) then
 
          else if (r2 < r2atat_d(iptjpt)) then
+            !usum = 1d10                ! emulate hs overlap
             usum(tidx_int) = 1d10                ! emulate hs overlap
          else if (r2 < r2umin_d(iptjpt)) then
            ! call StopUTwoBodyA
@@ -525,33 +523,41 @@ attributes(global) subroutine UTwoBodyA
                 ierror_d = iptjpt
             end do
             d = r2-ubuf_d(ibuf)
-            usum(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+         usum(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
                    d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
-                    fsum(tidx_int) = ubuf_d(ibuf+7)+d*(ubuf_d(ibuf+8)+d*(ubuf_d(ibuf+9)+ &
-                           d*(ubuf_d(ibuf+10)+d*ubuf_d(ibuf+11))))
-                    !fsumr2 = -1.0* fsum * r2
-            !print *, ip, jp, usum with print it works
+         fsum(tidx_int) = ubuf_d(ibuf+7)+d*(ubuf_d(ibuf+8)+d*(ubuf_d(ibuf+9)+ &
+                           d*(ubuf_d(ibuf+10)+d*ubuf_d(ibuf+11)))) 
+         fsum(tidx_int) = fsum(tidx_int) * r2
          end if
-         !utwob_d(iptjpt) = utwob_d(iptjpt) + usum
-         !        virtwob     = virtwob     - (fsum * r2)
-         istat = atomicAdd(utwob_d(iptjpt),usum(tidx_int))
-         istat = atomicSub(virtwob_d,fsum(tidx_int) * r2)
-         !print *, "utwob: ", utwob_d(iptjpt)
-     ! print *, "virtwob: ", virtwob
-   !   end do
-   !end do
+         !fsum = 1.0
+         !usum = 1.0
+         !istat = atomicAdd(utwob_d(iptjpt),usum)
+         !istat = atomicSub(virtwob_d,fsum * r2)
+         !istat = atomicAdd(utwob_d(iptjpt),usum(tidx_int))
+        ! istat = atomicSub(virtwob_d,fsum(tidx_int) * r2)
+       
+       else
+            iptjpt_arr(tidx_int) = 0
+            fsum(tidx_int) = 0
+            usum(tidx_int) = 0
+       end if
+      
+     
+       call syncthreads
+       if (tidx_int == 1) then
+          do i = 1, blockDim%x
+                fsum_aux = fsum_aux + fsum(i)
+                usum_aux(iptjpt_arr(i)) = usum_aux(iptjpt_arr(i)) + usum(i)
+          end do
+        istat = atomicSub(virtwob_d,fsum_aux)
+          do i = 1, nptpt_d
+             istat = atomicAdd(utwob_d(i),usum_aux(i))
+          end do
+       end if
 
-   !utwob_d(0) = sum(utwob_d(1:nptpt_d))
-   !if (tidx == 1) then
-   !        do iploc = 1, nptpt_d
-   !             utwob_d(0) = utwob_d(0) + utwob_d(iploc)
-   !        end do
-   !       print *, utwob_d(0)
 
-   !        utot_d     = utot_d     + utwob_d(0)
-   !end if
-end if
-!print *, "virial: ", virial_d
+           
+           
 
    !if (ltime) call CpuAdd('stop', txroutine, 2, uout)
 
