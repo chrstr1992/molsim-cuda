@@ -538,8 +538,8 @@ attributes(global) subroutine UTwoBodyA
        
        else
             iptjpt_arr(tidx_int) = 0
-            fsum(tidx_int) = 0
-            usum(tidx_int) = 0
+            fsum(tidx_int) = 0.0
+            usum(tidx_int) = 0.0
        end if
       
      
