@@ -48,7 +48,7 @@ module mol_cuda
    logical,device       :: lptmdutwob_d             ! flag for calulating dutobdy among moving particles
    real(8), device,allocatable :: utwobnew_d(:)
    real(8), device,allocatable :: utwobold_d(:)
- !  real(8), allocatable :: utwobold(:)
+   real(8), allocatable :: dutwobold(:)
 
 
    integer(4) :: iinteractions
@@ -82,7 +82,7 @@ subroutine AllocateDeviceParams
         allocate(dutwob_d(0:nptpt))
         allocate(utwobnew_d(0:nptpt))
         allocate(utwobold_d(0:nptpt))
-       ! allocate(utwobold(0:nptpt))
+        allocate(dutwobold(0:nptpt))
 
 
 end subroutine AllocateDeviceParams
@@ -181,7 +181,7 @@ end subroutine TransferVarParamsToHost
 subroutine TransferDUTotalVarToDevice
 
         use NListModule
-        use Energymodule
+        !use Energymodule
         use Molmodule
         implicit none
         !logical, intent(in) :: lhsoverlap
@@ -196,24 +196,24 @@ subroutine TransferDUTotalVarToDevice
         utwobnew_d(0:nptpt) = Zero
         dutwob_d(0:nptpt) = Zero
         utwobold_d(0:nptpt) = Zero
-        utwobold(0:nptpt) = Zero
+        dutwobold(0:nptpt) = Zero
 
 end subroutine TransferDUTotalVarToDevice
 
 subroutine TransferDUTotalVarToHost
 
         use Molmodule
-        use Energymodule
+        !use Energymodule
         implicit none
         integer(4) :: i
         !logical, intent(inout) :: lhsoverlap
-        utwobold = utwobold_d
+        dutwobold = utwobold_d
         do i = 1, nptpt
-           du%twob(i) = du%twob(i) - utwobold(i)
-           print *, "du%tw: ", du%twob(i)
+           du%twob(i) = du%twob(i) - dutwobold(i)
+        !   print *, "du%tw: ", du%twob(i)
         end do
         du%twob(0) = sum(du%twob(1:nptpt))
-        print *, du%twob(0)
+        !print *, du%twob(0)
 
 
 end subroutine TransferDUTotalVarToHost
