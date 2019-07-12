@@ -73,6 +73,7 @@ program MolsimDriver
    if (.not.lmix) call Coordinate(iWriteInput)
 
 ! .... DataTransfer
+   iinteractions = np*(np-1)/2
    print *, "start Allocation"
    call AllocateDeviceParams
    print *, "start Constant"
