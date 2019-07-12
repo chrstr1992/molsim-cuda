@@ -218,7 +218,7 @@ ifeq ($(ARCH), PGFORTRAN)
 
   COMP_SER = pgfortran
   LINK_SER = $(COMP_SER)
-  OPT_SER  = -O0 -Mcuda
+  OPT_SER  = -O3 -Mcuda
 
   COMP_PAR = /usr/lib64/openmpi/bin/mpif90
   LINK_PAR = $(COMP_PAR)
