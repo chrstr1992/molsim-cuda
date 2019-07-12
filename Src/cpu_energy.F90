@@ -508,6 +508,10 @@ subroutine UTwoBodyA
 
    u%tot     = u%tot     + u%twob(0)
    virial    = virial    + virtwob
+   do iploc = 1, nptpt
+      print *, "utwob: ", iploc, u%twob(iploc)
+   end do
+   print *, "virial: ", virial
 
    if (ltime) call CpuAdd('stop', txroutine, 2, uout)
 
