@@ -218,7 +218,7 @@ ifeq ($(ARCH), PGFORTRAN)
 
   COMP_SER = pgfortran
   LINK_SER = $(COMP_SER)
-  OPT_SER  = -O3 -Mcuda
+  OPT_SER  = -O0 -Mcuda
 
   COMP_PAR = /usr/lib64/openmpi/bin/mpif90
   LINK_PAR = $(COMP_PAR)
@@ -444,7 +444,7 @@ moldyn.o:         statistics.o
 moldyn_par.o:     statistics_par.o
 mollib.o:
 mollib_par.o:
-molsim.o:         mol.o statistics.o mollib.o
+molsim.o:         mol.o statistics.o mollib.o mol_cuda.o
 molsim_par.o:     mol_par.o statistics_par.o mollib_par.o
 moluser.o:        mol.o statistics.o potential.o mollib.o
 moluser_par.o:    mol_par.o potential_par.o statistics_par.o mollib_par.o
