@@ -311,7 +311,7 @@ attributes(global) subroutine UTwoBodyANew_cuda(lhsoverlap)
    implicit none
 
    logical,    intent(out) :: lhsoverlap
-
+!jjdjsa
    !character(40), parameter :: txroutine ='UTwoBodyANew'
 
    integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf,jp, i
