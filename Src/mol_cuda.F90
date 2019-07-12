@@ -194,9 +194,9 @@ subroutine TransferDUTotalVarToDevice
         rotm_d = rotm
         ro_d = ro
         utwobnew_d(0:nptpt) = Zero
-        dutwob_d(0:nptpt) = Zero
-        utwobold_d(0:nptpt) = Zero
-        dutwobold(0:nptpt) = Zero
+        !dutwob_d(0:nptpt) = Zero
+        !utwobold_d(0:nptpt) = Zero
+        !dutwobold(0:nptpt) = Zero
 
 end subroutine TransferDUTotalVarToDevice
 
