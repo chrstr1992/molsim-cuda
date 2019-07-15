@@ -330,6 +330,7 @@ endif
 #-----------------------------------------------------------------
 
 OBJS1=mol.o            \
+      precision_m.o      \
       mol_cuda.o       \
       particle.o       \
       potential.o      \
@@ -433,10 +434,11 @@ md.o:             mol.o
 md_par.o:         mol_par.o
 mesh.o:
 mesh_par.o:
+precision_m.o:
 mixed.o:          mol.o
 mixed_par.o:      mol_par.o
 mol.o:            statistics.o mesh.o mollib.o
-mol_cuda.o:       mol.o nlist.o
+mol_cuda.o:       mol.o nlist.o precision_m.o
 mol_par.o:        statistics_par.o mesh_par.o mollib_par.o
 molaux.o:         mol.o mollib.o
 molaux_par.o:     mol_par.o mollib_par.o
