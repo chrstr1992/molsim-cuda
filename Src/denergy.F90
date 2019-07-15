@@ -267,7 +267,7 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
            numblocks = floor(Real((nptm*np)/sizeofblocks)) + 1
            lhsoverlap = .false.
           if(ltime) call CpuAdd('start', 'transfer_over_tD', 1, uout)
-           lhsoverlap_d = lhsoverlap
+           lhsoverlap_d = .false.
           if(ltime) call CpuAdd('stop', 'transfer_over_tD', 1, uout)
            print *, "numblocks: ", numblocks
           if(ltime) call CpuAdd('start', 'calc', 1, uout)
@@ -314,11 +314,11 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
 !jjdjsa
    !character(40), parameter :: txroutine ='UTwoBodyANew'
 
-   integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf,jp, i
+   integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf,jp, i, j
    real(fp_kind)    :: dx, dy, dz, r2, d
    integer(4) :: tidx, t, tidx_int, istat
    real(fp_kind), shared :: usum1(512), usum2(512)
-   real(fp_kind), shared :: usum_aux1(0:3)
+   real(fp_kind), shared :: usum_aux1(1:16,0:3)
    integer(4),shared :: iptjpt_arr(512)
    !real(8), shared :: usum(512)
 !   logical    :: EllipsoidOverlap, SuperballOverlap
@@ -392,6 +392,7 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
                  !istat = atomicAdd(utwobnew_d(iptjpt),usum) 
               end if
               if (.not. lptm_d(jp)) then
+             !if ( .not. any(ipnptm_d ==jp)) then
                dx = ro_d(1,ip)-ro_d(1,jp)
                dy = ro_d(2,ip)-ro_d(2,jp)
                dz = ro_d(3,ip)-ro_d(3,jp)
@@ -433,12 +434,21 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
 
   400 continue
        call syncthreads
-       if (tidx_int == 1) then
-          do i = 1, blockDim%x
-            usum_aux1(iptjpt_arr(i)) = usum_aux1(iptjpt_arr(i)) + usum1(i)
+       if (tidx_int <= 16) then
+          do i = 1, blockDim%x/16
+            usum_aux1(tidx_int,iptjpt_arr(i)) = usum_aux1(tidx_int,iptjpt_arr(i)) + usum1(32*(tidx_int-1)+i)
           end do
+       end if
+          call syncthreads
+       if (tidx_int == 1) then
+          do i = 2, 16
+             do j = 1, 3
+            usum_aux1(1,j) = usum_aux1(1,j) + usum_aux1(i,j)
+            end do
+          end do
+
           do i = 1, nptpt_d
-             istat = atomicAdd(utwobnew_d(i),usum_aux1(i))
+             istat = atomicAdd(utwobnew_d(i),usum_aux1(1,i))
           end do
        end if
 

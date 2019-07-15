@@ -208,7 +208,7 @@ subroutine TransferDUTotalVarToDevice
    if(ltime) call CpuAdd('stop', 'ipnptm', 2, uout)
        ! nneighpn_d = nneighpn
    if(ltime) call CpuAdd('start', 'lptm', 2, uout)
-        lptm_d = lptm
+      !  lptm_d = lptm
    if(ltime) call CpuAdd('stop', 'lptm', 2, uout)
    if(ltime) call CpuAdd('start', 'rotm', 2, uout)
       rotm_d(1:3,1:nptm) = rotm(1:3,1:nptm)

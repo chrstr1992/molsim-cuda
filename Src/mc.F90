@@ -1507,16 +1507,17 @@ subroutine MCPass(iStage)
          drnlist = max(4*rchain, nphn*maxval(dtranhierarchical(:))) + drnold !set drnlist to four times contour length + drnlist (old)
          ! four times as 1 particle can move at max 2 times contour length using pivot move, and therefore two particles can approach each at max 4 times the contour length
          ! added drnold to reflect any possible local moves
-
          !get neighbor list
-         if (lvlist) then
-            call SetVList
-            call VListAver(iStage)
-         end if
-         if (lllist) then
-            call SetLList(rcut+drnlist)
-            call LListAver(iStage)
-         end if
+
+
+         !if (lvlist) then
+         !   call SetVList
+         !   call VListAver(iStage)
+         !end if
+         !if (lllist) then
+         !   call SetLList(rcut+drnlist)
+         !   call LListAver(iStage)
+         !end if
       end if
    end if
 
@@ -1552,22 +1553,22 @@ subroutine MCPass(iStage)
 
    end do
 
-   if(lmcsep) then
+   !if(lmcsep) then
       ! restore neighbour list
-      if(lnonloc) then
-         drnlist = drnold
-         drosum = Zero
+  !    if(lnonloc) then
+  !       drnlist = drnold
+  !       drosum = Zero
 
-         if (lvlist) then
-            call SetVList
-            call VListAver(iStage)
-         end if
-         if (lllist) then
-            call SetLList(rcut+drnlist)
-            call LListAver(iStage)
-         end if
-      end if
-   end if
+  !       if (lvlist) then
+  !          call SetVList
+  !          call VListAver(iStage)
+  !       end if
+  !       if (lllist) then
+  !          call SetLList(rcut+drnlist)
+  !          call LListAver(iStage)
+  !       end if
+  !    end if
+  ! end if
 
    if (ltime) call CpuAdd('stop', txroutine, 0, uout)
 
