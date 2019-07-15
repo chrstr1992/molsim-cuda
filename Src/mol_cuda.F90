@@ -2,53 +2,54 @@ module mol_cuda
 
     use Molmodule
     use cudafor
+    use precision_m
     implicit none
    logical :: lcuda
 
-   real(8),    constant :: ThreeHalf_d = 1.5d0
-   real(8),    constant :: SqTwo_d       = sqrt(Two)
+   real(fp_kind),    constant :: ThreeHalf_d = 1.5
+   real(fp_kind),    constant :: SqTwo_d       = sqrt(Two)
    logical,device       :: lbcbox_d                 ! box-like cell (rätblock)
    logical,device       :: lbcrd_d                  ! rhombic dodecahedral cell
    logical,device       :: lbcto_d                  ! truncated octahedral cell
-   real(8),device       :: boxlen_d(3)
-   real(8),device       :: boxlen2_d(3)             ! boxlen/2
+   real(fp_kind),device       :: boxlen_d(3)
+   real(fp_kind),device       :: boxlen2_d(3)             ! boxlen/2
    logical,device       :: lPBC_d                   ! periodic boundary conditions
-   real(8),device       :: dpbc_d(3)                ! =boxlen for some pbc, otherwise zero
+   real(fp_kind),device       :: dpbc_d(3)                ! =boxlen for some pbc, otherwise zero
    integer(4),device              :: np_d           ! number of particles
    integer(4), device    :: nptpt_d                  ! number of different particle type pairs
    logical,device                    :: lmonoatom_d
-   real(8), device, allocatable       :: r2atat_d(:)     !
+   real(fp_kind), device, allocatable       :: r2atat_d(:)     !
    integer(4), device, allocatable :: iptpn_d(:)     ! particle (1:np)               -> its particle type (1:npt)
 
    integer(4),device, allocatable :: iptpt_d(:,:)   ! two particle types (1:npt)    -> particle type pair (1:nptpt)
 
    logical,device       :: lmc_d                    ! flag for monte carlo simulation
-   real(8),device       :: virial_d                 ! virial
-   real(8), device, allocatable :: ro_d(:,:)         ! particle position
+   real(fp_kind),device       :: virial_d                 ! virial
+   real(fp_kind), device, allocatable :: ro_d(:,:)         ! particle position
    integer(4),device, allocatable :: nneighpn_d(:)  ! particle (local) -> number of neighbours
    integer(4),device, allocatable :: jpnlist_d(:,:) ! ineigh (local list) and ip (global or local) -> neigbour particle (1:np)
    integer(4),device              :: nbuf_d         ! length of buffer
-   real(8), device,    allocatable :: ubuf_d(:)      ! buffer for potential table
-   real(8), device                 :: rcut2_d        ! rcut**2
-   real(8), device,    allocatable :: r2umin_d(:)    ! lower limit squared of potential table
+   real(fp_kind), device,    allocatable :: ubuf_d(:)      ! buffer for potential table
+   real(fp_kind), device                 :: rcut2_d        ! rcut**2
+   real(fp_kind), device,    allocatable :: r2umin_d(:)    ! lower limit squared of potential table
    integer(4),device, allocatable :: iubuflow_d(:)  ! points on the first entry for iatjat
-   real(8), device,allocatable :: utwob_d(:)
-   real(8), device  :: utot_d
-   real(8), device  :: virtwob_d
+   real(fp_kind), device,allocatable :: utwob_d(:)
+   real(fp_kind), device  :: utot_d
+   real(fp_kind), device  :: virtwob_d
 
 !... in DuTotal
    logical, device      :: lhsoverlap_d
    integer(4),device    :: nptm_d
    integer(4), device, allocatable :: ipnptm_d(:)
    logical, device, allocatable    :: lptm_d(:)
-   real(8), device, allocatable    :: rotm_d(:,:)
+   real(fp_kind), device, allocatable    :: rotm_d(:,:)
    logical, device                 :: lellipsoid_d
    logical, device                 :: lsuperball_d
-   real(8), device, allocatable    :: dutwob_d(:)
+   real(fp_kind), device, allocatable    :: dutwob_d(:)
    logical,device       :: lptmdutwob_d             ! flag for calulating dutobdy among moving particles
-   real(8), device,allocatable :: utwobnew_d(:)
-   real(8), device,allocatable :: utwobold_d(:)
-   real(8), allocatable :: dutwobold(:)
+   real(fp_kind), device,allocatable :: utwobnew_d(:)
+   real(fp_kind), device,allocatable :: utwobold_d(:)
+   real(fp_kind), allocatable :: dutwobold(:)
 
 
    integer(4) :: iinteractions
@@ -66,6 +67,7 @@ subroutine AllocateDeviceParams
 
         integer(4) :: istat
 
+   if(ltime) call CpuAdd('start', 'allocation', 1, uout)
         allocate(iptpt_d(npt,npt))
         allocate(jpnlist_d(maxnneigh,npartperproc))
         allocate(utwob_d(0:nptpt))
@@ -83,6 +85,7 @@ subroutine AllocateDeviceParams
         allocate(utwobnew_d(0:nptpt))
         allocate(utwobold_d(0:nptpt))
         allocate(dutwobold(0:nptpt))
+   if(ltime) call CpuAdd('stop', 'allocation', 1, uout)
 
 
 end subroutine AllocateDeviceParams
@@ -113,6 +116,7 @@ subroutine TransferConstantParams
         !istat = cudaMemcpy(lmc_d,lmc,1)
         !istat = cudaMemcpy(np_d,np,1)
 
+   if(ltime) call CpuAdd('start', 'transferconstant', 1, uout)
         boxlen2_d = boxlen2
         boxlen_d = boxlen
         dpbc_d = dpbc
@@ -138,6 +142,7 @@ subroutine TransferConstantParams
         iinteractions_d = iinteractions
 
         lcuda = .true.
+   if(ltime) call CpuAdd('stop', 'transferconstant', 1, uout)
 
 end subroutine TransferConstantParams
 
@@ -149,6 +154,7 @@ subroutine TransferVarParamsToDevice
         integer(4) :: istat
         !istat = cudaMemcpy2D(ro_d,ro,3*np)
 
+   if(ltime) call CpuAdd('start', 'transferVartoDevice', 1, uout)
         ro_d =ro
         !utwob_d = u%twob
         utwob_d = 0.0
@@ -159,6 +165,7 @@ subroutine TransferVarParamsToDevice
         jpnlist_d = jpnlist
         utot_d = u%tot
         virtwob_d = 0.0
+   if(ltime) call CpuAdd('start', 'transferVartoDevice', 1, uout)
 
         !istat = cudaMemcpy(nneighpn_d, nneighpn,np)
         !istat = cudaMemcpy(jpnlist_d,jpnlist,maxnneigh*np)
@@ -171,11 +178,13 @@ subroutine TransferVarParamsToHost
 
         integer(4) :: istat
 
+   if(ltime) call CpuAdd('start', 'transferVartohost', 1, uout)
         !istat = cudaMemcpy(ro_d,ro,3*np)
         !ro = ro_d
         !virial = virial_d
         !u%tot = utot_d
         u%twob = utwob_d
+   if(ltime) call CpuAdd('stop', 'transferVartohost', 1, uout)
 end subroutine TransferVarParamsToHost
 
 subroutine TransferDUTotalVarToDevice
@@ -187,13 +196,17 @@ subroutine TransferDUTotalVarToDevice
         !logical, intent(in) :: lhsoverlap
 
        ! dutwob_d = du%twob
+   if(ltime) call CpuAdd('start', 'transferDUtoDevice', 1, uout)
         nptm_d = nptm
         ipnptm_d = ipnptm
-        nneighpn_d = nneighpn
+       ! nneighpn_d = nneighpn
         lptm_d = lptm
         rotm_d = rotm
-        ro_d = ro
+  ! if(ltime) call CpuAdd('start', 'transferPos', 2, uout)
+       ! ro_d = ro
+  ! if(ltime) call CpuAdd('stop', 'transferPos', 2, uout)
         utwobnew_d(0:nptpt) = Zero
+   if(ltime) call CpuAdd('stop', 'transferDUtoDevice', 1, uout)
         !dutwob_d(0:nptpt) = Zero
         !utwobold_d(0:nptpt) = Zero
         !dutwobold(0:nptpt) = Zero
@@ -207,12 +220,14 @@ subroutine TransferDUTotalVarToHost
         implicit none
         integer(4) :: i
         !logical, intent(inout) :: lhsoverlap
+   if(ltime) call CpuAdd('start', 'transferDUToHost', 1, uout)
         dutwobold = utwobold_d
         do i = 1, nptpt
            du%twob(i) = du%twob(i) - dutwobold(i)
         !   print *, "du%tw: ", du%twob(i)
         end do
         du%twob(0) = sum(du%twob(1:nptpt))
+   if(ltime) call CpuAdd('stop', 'transferDUToHost', 1, uout)
         !print *, du%twob(0)
 
 
@@ -231,8 +246,8 @@ attributes(device) subroutine PBCr2_cuda(dx,dy,dz,r2)!,boxlen,boxlen2,lPBC,lbcbo
 
    implicit none
 
-   real(8), intent(inout) :: dx, dy, dz
-   real(8), intent(inout) :: r2
+   real(fp_kind), intent(inout) :: dx, dy, dz
+   real(fp_kind), intent(inout) :: r2
 !   real(8), intent(inout)  :: boxlen, boxlen2
 !   logical, intent(inout)  :: lPBC, lbcbox, lbcrd, lbcto
    !real(8)              :: Threehalf = 1.5d0
