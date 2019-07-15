@@ -298,6 +298,7 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
    use EnergyModule
    use mol_cuda
    use cudafor
+   use precision_m
    implicit none
 
    logical,    intent(out) :: lhsoverlap
@@ -305,10 +306,10 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
    !character(40), parameter :: txroutine ='UTwoBodyANew'
 
    integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf,jp, i
-   real(8)    :: dx, dy, dz, r2, d
+   real(fp_kind)    :: dx, dy, dz, r2, d
    integer(4) :: tidx, t, tidx_int, istat
-   real(8), shared :: usum1(512), usum2(512)
-   real(8), shared :: usum_aux1(0:3)
+   real(fp_kind), shared :: usum1(512), usum2(512)
+   real(fp_kind), shared :: usum_aux1(0:3)
    integer(4),shared :: iptjpt_arr(512)
    !real(8), shared :: usum(512)
 !   logical    :: EllipsoidOverlap, SuperballOverlap
@@ -450,6 +451,7 @@ attributes(global) subroutine UTwoBodyANew_cuda(lhsoverlap)
    use EnergyModule
    use mol_cuda
    use cudafor
+   use precision_m
    implicit none
 
    logical,    intent(out) :: lhsoverlap
@@ -457,10 +459,10 @@ attributes(global) subroutine UTwoBodyANew_cuda(lhsoverlap)
    !character(40), parameter :: txroutine ='UTwoBodyANew'
 
    integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf,jp, i
-   real(8)    :: dx, dy, dz, r2, d
+   real(fp_kind)    :: dx, dy, dz, r2, d
    integer(4) :: tidx, t, tidx_int, istat
-   real(8), shared :: usum1(512)
-   real(8), shared :: usum_aux1(0:3)
+   real(fp_kind), shared :: usum1(512)
+   real(fp_kind), shared :: usum_aux1(0:3)
    integer(4),shared :: iptjpt_arr(512)
    !real(8), shared :: usum(512)
 !   logical    :: EllipsoidOverlap, SuperballOverlap
@@ -720,6 +722,7 @@ attributes(global) subroutine UTwoBodyAOld
    use EnergyModule
    use mol_cuda
    use cudafor
+   use precision_m
    implicit none
 
 !   character(40), parameter :: txroutine ='UTwoBodyAOld'
@@ -731,10 +734,10 @@ attributes(global) subroutine UTwoBodyAOld
 
 
    integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf,jp, i
-   real(8)    :: dx, dy, dz, r2, d
+   real(fp_kind)    :: dx, dy, dz, r2, d
    integer(4) :: tidx, t, tidx_int, istat
-   real(8), shared :: usum(512)
-   real(8), shared    :: usum_aux2(0:3)
+   real(fp_kind), shared :: usum(512)
+   real(fp_kind), shared    :: usum_aux2(0:3)
    integer(4),shared :: iptjpt_arr(512)
    !!real(8), shared :: usum(512)
 !  ! logical    :: EllipsoidOverlap, SuperballOverlap
