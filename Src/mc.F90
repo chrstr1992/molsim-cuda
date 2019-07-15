@@ -5228,8 +5228,6 @@ subroutine MCUpdate
       ro(1:3,ip) = rotm(1:3,iploc)                             ! position
    if(ltime) call CpuAdd('start', 'transferPos', 1, uout)
       ro_d(1:3,ip) = ro(1:3,ip)
-      ro_d(1:3,ip) = ro(1:3,ip)
-      ro_d(1:3,ip) = ro(1:3,ip)
    if(ltime) call CpuAdd('stop', 'transferPos', 1, uout)
       if (lpolyatom .or. lellipsoid .or. lsuperball .or. lfixedori) ori(1:3,1:3,ip) = oritm(1:3,1:3,iploc)    ! orientation
 !  not sure that lfixedori is needed in the line above Jos

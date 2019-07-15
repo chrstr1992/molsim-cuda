@@ -142,6 +142,8 @@ subroutine TransferConstantParams
         iinteractions_d = iinteractions
 
         lcuda = .true.
+
+        ro_d = ro
    if(ltime) call CpuAdd('stop', 'transferconstant', 1, uout)
 
 end subroutine TransferConstantParams
@@ -193,19 +195,31 @@ subroutine TransferDUTotalVarToDevice
         !use Energymodule
         use Molmodule
         implicit none
+        integer(4) :: i
         !logical, intent(in) :: lhsoverlap
 
        ! dutwob_d = du%twob
    if(ltime) call CpuAdd('start', 'transferDUtoDevice', 1, uout)
+   if(ltime) call CpuAdd('start', 'nptm', 2, uout)
         nptm_d = nptm
+   if(ltime) call CpuAdd('stop', 'nptm', 2, uout)
+   if(ltime) call CpuAdd('start', 'ipnptm', 2, uout)
         ipnptm_d = ipnptm
+   if(ltime) call CpuAdd('stop', 'ipnptm', 2, uout)
        ! nneighpn_d = nneighpn
+   if(ltime) call CpuAdd('start', 'lptm', 2, uout)
         lptm_d = lptm
-        rotm_d = rotm
-  ! if(ltime) call CpuAdd('start', 'transferPos', 2, uout)
+   if(ltime) call CpuAdd('stop', 'lptm', 2, uout)
+   if(ltime) call CpuAdd('start', 'rotm', 2, uout)
+      rotm_d(1:3,1:nptm) = rotm(1:3,1:nptm)
+       ! rotm_d = rotm
+   if(ltime) call CpuAdd('stop', 'rotm', 2, uout)
+   !if(ltime) call CpuAdd('start', 'transferPos', 2, uout)
        ! ro_d = ro
-  ! if(ltime) call CpuAdd('stop', 'transferPos', 2, uout)
+   !if(ltime) call CpuAdd('stop', 'transferPos', 2, uout)
+   if(ltime) call CpuAdd('start', 'utwobnew', 2, uout)
         utwobnew_d(0:nptpt) = Zero
+   if(ltime) call CpuAdd('stop', 'utwobnew', 2, uout)
    if(ltime) call CpuAdd('stop', 'transferDUtoDevice', 1, uout)
         !dutwob_d(0:nptpt) = Zero
         !utwobold_d(0:nptpt) = Zero

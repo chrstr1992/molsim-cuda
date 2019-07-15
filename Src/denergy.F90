@@ -266,13 +266,18 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
            sizeofblocks = 512
            numblocks = floor(Real((nptm*np)/sizeofblocks)) + 1
            lhsoverlap = .false.
+          if(ltime) call CpuAdd('start', 'transfer_over_tD', 1, uout)
            lhsoverlap_d = lhsoverlap
+          if(ltime) call CpuAdd('stop', 'transfer_over_tD', 1, uout)
            print *, "numblocks: ", numblocks
+          if(ltime) call CpuAdd('start', 'calc', 1, uout)
            call UTwoBodyAAll<<<numblocks,sizeofblocks>>>(lhsoverlap_d)                ! calculate new two-body potential energy
+          if(ltime) call CpuAdd('stop', 'calc', 1, uout)
+          if(ltime) call CpuAdd('start', 'transfer_over_tH', 1, uout)
            lhsoverlap = lhsoverlap_d
-           du%twob = utwobnew_d
-           du%twob(0) = sum(du%twob(1:nptpt))
-           dutwob_d = du%twob
+       !    istat = cudaMemcpy(lhsoverlap,lhsoverlap_d,1)
+          if(ltime) call CpuAdd('stop', 'transfer_over_tH', 1, uout)
+           !dutwob_d = du%twob
    else
            call utwobodynew(lhsoverlap,jp)
            utwobold_d(0:nptpt) = Zero
@@ -283,6 +288,10 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
 #endif
 
    if (.not.lhsoverlap) then                     ! check hard-core overlap
+        if(ltime) call CpuAdd('start', 'transfer_e_tH', 1, uout)
+           du%twob = utwobnew_d
+        if(ltime) call CpuAdd('stop', 'transfer_e_tH', 1, uout)
+           du%twob(0) = sum(du%twob(1:nptpt))
         ! call TransferDUTotalVarToHost
         du%tot = du%tot + du%twob(0)                ! update
    end if
