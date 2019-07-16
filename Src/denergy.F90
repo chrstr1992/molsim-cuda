@@ -440,14 +440,14 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
 
   400 continue
        call syncthreads
-       if (tidx_int <= 16) then
-          do i = 1, blockDim%x/16
-                usum_aux1(tidx_int,iptjpt_arr(i)) = usum_aux1(tidx_int,iptjpt_arr(i)) + usum1(32*(tidx_int-1)+i)
+       if (tidx_int <= threadssum_d) then
+          do i = 1, blockDim%x/threadssum_d
+             usum_aux1(tidx_int,iptjpt_arr(i)) = usum_aux1(tidx_int,iptjpt_arr(i)) + usum1(blockDim%x/threadssum_d*(tidx_int-1)+i)
           end do
        end if
           call syncthreads
        if (tidx_int == 1) then
-          do i = 2, 16
+          do i = 2, threadssum_d
              do j = 1, nptpt_d
             usum_aux1(1,j) = usum_aux1(1,j) + usum_aux1(i,j)
             end do
