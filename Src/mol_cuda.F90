@@ -55,7 +55,10 @@ module mol_cuda
    integer(4) :: iinteractions
    integer(4),device :: iinteractions_d
    integer(4), device :: ierror_d
-   
+   integer(4), device :: sizeofblocks_d
+
+   integer(4) :: threadssum
+   integer(4),device :: threadssum_d
    contains
 
 
@@ -144,6 +147,9 @@ subroutine TransferConstantParams
         lcuda = .true.
 
         ro_d = ro
+        sizeofblocks_d = 512
+        threadssum =16
+        threadssum_d = threadssum
    if(ltime) call CpuAdd('stop', 'transferconstant', 1, uout)
 
 end subroutine TransferConstantParams
@@ -204,11 +210,11 @@ subroutine TransferDUTotalVarToDevice
         nptm_d = nptm
    if(ltime) call CpuAdd('stop', 'nptm', 2, uout)
    if(ltime) call CpuAdd('start', 'ipnptm', 2, uout)
-        ipnptm_d = ipnptm
+        ipnptm_d(1:nptm) = ipnptm(1:nptm)
    if(ltime) call CpuAdd('stop', 'ipnptm', 2, uout)
        ! nneighpn_d = nneighpn
    if(ltime) call CpuAdd('start', 'lptm', 2, uout)
-      !  lptm_d = lptm
+        lptm_d = lptm
    if(ltime) call CpuAdd('stop', 'lptm', 2, uout)
    if(ltime) call CpuAdd('start', 'rotm', 2, uout)
       rotm_d(1:3,1:nptm) = rotm(1:3,1:nptm)
