@@ -247,6 +247,7 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
    use EnergyModule
    use mol_cuda
    use cudafor
+   use precision_m
    implicit none
 
    logical,    intent(out) :: lhsoverlap        ! =.true. hard-core overlap
@@ -254,7 +255,10 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
 
    character(40), parameter :: txroutine ='DUTwoBody'
    integer(4) :: jp, i
-   integer(4) :: numblocks, sizeofblocks
+   integer(4) :: numblocks
+   integer(4) :: sizeofblocks =512
+   !integer(4) :: threadssum = 16
+   integer(4) :: isharedmem
    external utwobodynew
    external twobodyold
 
@@ -263,15 +267,16 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
    du%twob(0:nptpt) = Zero                      ! initiate
    if (lcuda) then
            call TransferDUTotalVarToDevice
-           sizeofblocks = 512
+         !  sizeofblocks = 512
            numblocks = floor(Real((nptm*np)/sizeofblocks)) + 1
            lhsoverlap = .false.
+           isharedmem = 2*sizeofblocks*fp_kind + sizeofblocks*4 + threadssum*(nptpt+1)*fp_kind
+           print *, "shared: ", isharedmem, nptpt
           if(ltime) call CpuAdd('start', 'transfer_over_tD', 1, uout)
            lhsoverlap_d = .false.
           if(ltime) call CpuAdd('stop', 'transfer_over_tD', 1, uout)
-           print *, "numblocks: ", numblocks
           if(ltime) call CpuAdd('start', 'calc', 1, uout)
-           call UTwoBodyAAll<<<numblocks,sizeofblocks>>>(lhsoverlap_d)                ! calculate new two-body potential energy
+           call UTwoBodyAAll<<<numblocks,sizeofblocks,isharedmem>>>(lhsoverlap_d)                ! calculate new two-body potential energy
           if(ltime) call CpuAdd('stop', 'calc', 1, uout)
           if(ltime) call CpuAdd('start', 'transfer_over_tH', 1, uout)
            lhsoverlap = lhsoverlap_d
@@ -313,13 +318,14 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
    logical,    intent(out) :: lhsoverlap
 !jjdjsa
    !character(40), parameter :: txroutine ='UTwoBodyANew'
-
+!kasdasdasdasdsakdjasdj
    integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf,jp, i, j
    real(fp_kind)    :: dx, dy, dz, r2, d
    integer(4) :: tidx, t, tidx_int, istat
-   real(fp_kind), shared :: usum1(512), usum2(512)
-   real(fp_kind), shared :: usum_aux1(1:16,0:3)
-   integer(4),shared :: iptjpt_arr(512)
+   integer(4),shared :: iptjpt_arr(blockDim%x)
+   real(fp_kind), shared :: usum1(blockDim%x), usum2(blockDim%x)
+   real(fp_kind), shared ::  usum_aux1(threadssum_d,0:nptpt_d)
+  ! real(fp_kind), shared :: usum_aux1(sumthreads,0:55)
    !real(8), shared :: usum(512)
 !   logical    :: EllipsoidOverlap, SuperballOverlap
    tidx = blockDim%x * (blockIdx%x - 1) + threadIdx%x  !global thread index 1 ...
@@ -426,7 +432,7 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
               d = r2-ubuf_d(ibuf)
               usum2(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
                            d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
-              usum1(tidx_int) = usum1(tidx_int) - usum2(tidx_int)
+                        usum1(tidx_int) = usum1(tidx_int) - usum2(tidx_int)
          !print *, "ip: ",ip, jp,r2, usum(tidx_int)
              ! istat = atomicAdd(utwobold_d(iptjpt),usum) 
         end if
@@ -436,13 +442,13 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
        call syncthreads
        if (tidx_int <= 16) then
           do i = 1, blockDim%x/16
-            usum_aux1(tidx_int,iptjpt_arr(i)) = usum_aux1(tidx_int,iptjpt_arr(i)) + usum1(32*(tidx_int-1)+i)
+                usum_aux1(tidx_int,iptjpt_arr(i)) = usum_aux1(tidx_int,iptjpt_arr(i)) + usum1(32*(tidx_int-1)+i)
           end do
        end if
           call syncthreads
        if (tidx_int == 1) then
           do i = 2, 16
-             do j = 1, 3
+             do j = 1, nptpt_d
             usum_aux1(1,j) = usum_aux1(1,j) + usum_aux1(i,j)
             end do
           end do
