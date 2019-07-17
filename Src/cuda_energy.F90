@@ -477,15 +477,16 @@ attributes(global) subroutine UTwoBodyA
    use EnergyModule
    use cudafor
    use mol_cuda
+   use precision_m
    implicit none
 
   ! character(40), parameter :: txroutine ='UTwoBodyA'
    integer(4) :: ip, iploc, ipt, jp, jploc, jpt, iptjpt, ibuf, Getnpmyid,istat
    integer(4) :: i
-   real(8)    :: dx, dy, dz, r2, d !, usum, fsum
-   integer(4) :: tidx, t, tidx_int
-   real(8), shared :: usum(512), fsum(512)
-   real(8) :: fsum_aux, usum_aux(0:nptpt_d)
+   real(fp_kind)    :: dx, dy, dz, r2, d !, usum, fsum
+   integer(fp_kind) :: tidx, t, tidx_int
+   real(fp_kind), shared :: usum(512), fsum(512)
+   real(fp_kind) :: fsum_aux, usum_aux(0:nptpt_d)
    integer(4),shared :: iptjpt_arr(512)
 
    !if (.not.lmonoatom_d) call Stop(txroutine, '.not.lmonoatom', uout)
