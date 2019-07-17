@@ -2680,7 +2680,7 @@ end subroutine QuaVelToAngVel
 
 !“Minimal” random number generator of Park and Miller combined with a Marsaglia shift sequence. Returns a uniform random deviate between 0.0 and 1.0 (exclusive of the endpoint values). This fully portable, scalar generator has the “traditional” (not Fortran 90) calling sequence with a random deviate as the returned function value: call with idum a negative integer to initialize; thereafter, do not alter idum except to reinitialize. The period of this generator is about 3.1 × 10^18 .
 
-module randommodule
+module Random_Module
 
       implicit none
 
@@ -2764,7 +2764,7 @@ module randommodule
       end subroutine Random_d
 
 
-end module randommodule
+end module Random_Module
 
 !************************************************************************
 !*     Random                                                           *
