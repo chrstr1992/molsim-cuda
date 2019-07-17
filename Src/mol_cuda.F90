@@ -17,6 +17,7 @@ module mol_cuda
    real(fp_kind),device       :: dpbc_d(3)                ! =boxlen for some pbc, otherwise zero
    integer(4),device              :: np_d           ! number of particles
    integer(4), device    :: nptpt_d                  ! number of different particle type pairs
+   integer(4), device    :: npt_d
    logical,device                    :: lmonoatom_d
    real(fp_kind), device, allocatable       :: r2atat_d(:)     !
    integer(4), device, allocatable :: iptpn_d(:)     ! particle (1:np)               -> its particle type (1:npt)
@@ -139,6 +140,7 @@ subroutine TransferConstantParams
         lmonoatom_d = lmonoatom
         lmc_d = lmc
         np_d = np
+        npt_d = npt
         lellipsoid_d = lellipsoid
         lsuperball_d = lsuperball
         lptmdutwob_d = lptmdutwob
