@@ -59,6 +59,10 @@ module mol_cuda
 
    integer(4) :: threadssum
    integer(4),device :: threadssum_d
+
+   !variables for ewald summation
+   integer(4),device :: ncut_d
+   integer(4), device :: natm_d
    contains
 
 
