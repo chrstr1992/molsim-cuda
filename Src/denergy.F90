@@ -448,16 +448,12 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
           end do
        end if
           call syncthreads
-       if (tidx_int == 1) then
+       if (tidx_int <= nptpt_d) then
           do i = 2, threadssum_d
-             do j = 1, nptpt_d
-            usum_aux1(1,j) = usum_aux1(1,j) + usum_aux1(i,j)
-            end do
+            usum_aux1(1,tidx_int) = usum_aux1(1,tidx_int) + usum_aux1(i,tidx_int)
           end do
 
-          do i = 1, nptpt_d
-             istat = atomicAdd(utwobnew_d(i),usum_aux1(1,i))
-          end do
+             istat = atomicAdd(utwobnew_d(tidx_int),usum_aux1(1,tidx_int))
        end if
 
 end subroutine UTwoBodyAAll
