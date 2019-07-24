@@ -442,26 +442,26 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
 
   400 continue
        call syncthreads
-       !if (tidx_int <= threadssum_d) then
-       !   do i = 1, blockDim%x/threadssum_d - 1
-       !      usum_aux1(tidx_int,iptjpt_arr(threadssum_d*i + tidx_int)) = &
-       !         usum_aux1(tidx_int,iptjpt_arr(threadssum_d*i + tidx_int)) + usum1(threadssum_d*i+tidx_int)
-       !   end do
-       !end if
-       !   call syncthreads
-       !if (tidx_int == 1) then
-       !   do i = 2, threadssum_d
-       !      do j = 1, nptpt_d
-       !     usum_aux1(1,j) = usum_aux1(1,j) + usum_aux1(i,j)
-       !     end do
-       !   end do
+       if (tidx_int <= threadssum_d) then
+          do i = 1, blockDim%x/threadssum_d
+             usum_aux1(tidx_int,iptjpt_arr(threadssum_d*(i-1) + tidx_int)) = &
+                usum_aux1(tidx_int,iptjpt_arr(threadssum_d*(i-1) + tidx_int)) + usum1(threadssum_d*(i-1)+tidx_int)
+          end do
+       end if
+          call syncthreads
+       if (tidx_int == 1) then
+          do i = 2, threadssum_d
+             do j = 1, nptpt_d
+            usum_aux1(1,j) = usum_aux1(1,j) + usum_aux1(i,j)
+            end do
+          end do
 
-       !   do i = 1, nptpt_d
-       !      istat = atomicAdd(utwobnew_d(i),usum_aux1(1,i))
-       !   end do
-       !end if
+          do i = 1, nptpt_d
+             istat = atomicAdd(utwobnew_d(i),usum_aux1(1,i))
+          end do
+       end if
 
-       istat = atomicAdd(utwobnew_d(iptjpt_arr(tidx_int)),usum1(tidx_int))
+       !istat = atomicAdd(utwobnew_d(iptjpt_arr(tidx_int)),usum1(tidx_int))
 
 end subroutine UTwoBodyAAll
 
