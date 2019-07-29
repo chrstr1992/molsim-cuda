@@ -1475,6 +1475,7 @@ subroutine MCPass(iStage)
    use mol_cuda
    use gpumodule
    use cudafor
+   use MolModule
    implicit none
 
    integer(4), intent(in) :: iStage
@@ -1496,12 +1497,12 @@ subroutine MCPass(iStage)
    write(*,*) "after dtran"
 
 if (lseq == .true.) then
-   !utot_d = u%tot
+   utot_d = u%tot
    call MCPassAllGPU
    !u_aux = u_aux + u%tot
    !write(*,*) "UTotal: ", u%tot
    !write(*,*) "Uaux: ", u_aux
-   !u%tot = utot_d
+   u%tot = utot_d
       ro = ro_d
       r = ro
 !end do
@@ -5258,6 +5259,7 @@ subroutine MCUpdate
       if(lCellList) call UpdateCellIp(ip)
    end do
 
+   print *, u%tot
 end subroutine MCUpdate
 
 !************************************************************************
