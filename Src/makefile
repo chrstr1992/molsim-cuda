@@ -340,6 +340,7 @@ OBJS1=mol.o            \
       coordinate.o     \
       md.o             \
       mc.o             \
+      gpu.o            \
       bd.o             \
       nlist.o          \
       energy.o         \
@@ -427,12 +428,13 @@ dynamic.o:        mol.o statistics.o mollib.o
 dynamic_par.o:    mol_par.o statistics_par.o mollib_par.o
 energy.o:         mol.o mollib.o celllist.o mol_cuda.o
 energy_par.o:     mol_par.o mollib_par.o celllist_par.o
+gpu.o:            mol.o mol_cuda.o mollib.o
 group.o:          mol.o
 group_par.o:      mol_par.o
 image.o:          mol.o mollib.o
 image_par.o:      mol_par.o mollib_par.o
 mc.o:             mol.o nlist.o mollib.o celllist.o
-mc_par.o:         mol_par.o nlist_par.o mollib_par.o celllist_par.o
+mc_par.o:         mol_par.o nlist_par.o mollib_par.o celllist_par.o gpu.o
 md.o:             mol.o
 md_par.o:         mol_par.o
 mesh.o:
@@ -447,9 +449,9 @@ molaux.o:         mol.o mollib.o
 molaux_par.o:     mol_par.o mollib_par.o
 moldyn.o:         statistics.o
 moldyn_par.o:     statistics_par.o
-mollib.o:
+mollib.o:         precision_m.o
 mollib_par.o:
-molsim.o:         mol.o statistics.o mollib.o mol_cuda.o
+molsim.o:         mol.o statistics.o mollib.o mol_cuda.o gpu.o
 molsim_par.o:     mol_par.o statistics_par.o mollib_par.o
 moluser.o:        mol.o statistics.o potential.o mollib.o
 moluser_par.o:    mol_par.o potential_par.o statistics_par.o mollib_par.o

@@ -790,6 +790,7 @@ end subroutine MCDriver
 subroutine IOMC(iStage)
 
    use MCModule
+   use mol_cuda
    implicit none
 
    integer(4), intent(in) :: iStage
@@ -1471,12 +1472,15 @@ subroutine MCPass(iStage)
 
    use MCModule
    use NListModule, only : drnlist, drosum
+   use mol_cuda
+   use gpumodule
+   use cudafor
    implicit none
 
    integer(4), intent(in) :: iStage
 
    character(40), parameter :: txroutine ='MCPass'
-   integer(4) :: ipt, ict
+   integer(4) :: ipt, ict, ip, istat2
    real(8)    :: Random, prandom, drnold, rchain
    logical :: lnonloc
 
@@ -1485,7 +1489,23 @@ subroutine MCPass(iStage)
    if (ltime) call CpuAdd('start', txroutine, 0, uout)
 
    drostep= Zero
+   write(*,*) "before dtran"
+   dtran_d = dtran
+   !istat2 = cudaDeviceSynchronize()
 
+   write(*,*) "after dtran"
+
+if (lseq == .true.) then
+   !utot_d = u%tot
+   call MCPassAllGPU
+   !u_aux = u_aux + u%tot
+   !write(*,*) "UTotal: ", u%tot
+   !write(*,*) "Uaux: ", u_aux
+   !u%tot = utot_d
+      ro = ro_d
+      r = ro
+!end do
+else
    if(lmcsep) then ! call only local or non-local moves, not both
       prandom = Random(iseed)
       lnonloc = .false.
@@ -1552,6 +1572,7 @@ subroutine MCPass(iStage)
       if (lcont) call MCAver(iSimulationStep)
 
    end do
+end if
 
    !if(lmcsep) then
       ! restore neighbour list

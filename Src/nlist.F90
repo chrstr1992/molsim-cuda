@@ -135,7 +135,9 @@ subroutine NListDriver(iStage)
    select case (iStage)
    case (iReadInput)
 
+      write(*,*) "start IONList"
       call IONList(iStage)
+      write(*,*) "end IONList"
 
    case (iWriteInput)
 
@@ -211,7 +213,9 @@ subroutine IONList(iStage)
       rewind(uin)
       read(uin,nmlIntList)
 
+      write(*,*) "startLowerCasw"
       call LowerCase(txintlist)
+      write(*,*) "end LowerCasw"
 
       if(txintlist == 'nlist') txintlist = 'vlist'       ! handle old input'
 
@@ -269,11 +273,16 @@ subroutine IONList(iStage)
 
 ! ... allocate memory
 
+      write(*,*) "allocate nb"
       if (.not.allocated(ipnploc)) then
          allocate(ipnploc(npartperproc), nneighpn(npartperproc), jpnlist(maxnneigh,npartperproc), stat = ierr)
          ipnploc = 0
+      write(*,*) "allocate nb successful"
          nneighpn = 0
+      write(*,*) "allocate nb successful"
+      write(*,*) "maxnneigh: ", maxnneigh
          jpnlist = 0
+      write(*,*) "allocate nb successful"
          if(ierr /= 0) then
             write(*,'(a,i10)') 'maxnneigh   = ', maxnneigh
             call WriteIOStat(txroutine, 'memory allocation failed', ierr, 2, 6)

@@ -31,6 +31,7 @@ program MolsimDriver
 
    use MolModule
    use mol_cuda
+   use gpumodule
    implicit none
 
    character(40), parameter :: txroutine ='MolsimDriver'
@@ -52,7 +53,7 @@ program MolsimDriver
 #endif
 
 ! ............... initiate and read input data ..............
-   print *, "start"
+   write(*,*) "start"
    call IOMolsim(iReadInput)
    call IOSystem(iReadInput)
    call IOScale(iReadInput)
@@ -74,11 +75,12 @@ program MolsimDriver
 
 ! .... DataTransfer
    iinteractions = np*(np-1)/2
-   print *, "start Allocation"
+   write(*,*) "start Allocation"
    call AllocateDeviceParams
-   print *, "start Constant"
+   write(*,*) "start Constant"
+   call PrepareMC_cudaAll
    call TransferConstantParams
-   print *, "transfer successful"
+   write(*,*) "transfer successful"
 
    call MolsimDriverSub(iWriteInput)
 
@@ -162,9 +164,13 @@ subroutine MolsimDriverSub(iStage)
    end if
    call NListDriver(iStage)
    if (lsim) then
+      write(*,*) "start controlAver"
       if (lcont)  call ControlAver(iStage)
+      write(*,*) "start mainAver"
       if (laver)  call MainAver(iStage)
+      write(*,*) "start ThermoInteg"
       if (lti)    call ThermoInteg(iStage)
+      write(*,*) "start Distfunc"
       if (ldist)  call DistFunc(iStage)
    end if
    if (ldump)    call DumpDriver(iStage)
@@ -172,6 +178,7 @@ subroutine MolsimDriverSub(iStage)
    if (lstatic)  call StaticDriver(iStage)
    if (ldynamic) call DynamicDriver(iStage)
    if (limage)   call ImageDriver(iStage)
+   write(*,*) "end MolsimDriversub"
 end subroutine MolsimDriverSub
 
 !........................................................................

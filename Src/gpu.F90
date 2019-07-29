@@ -11,6 +11,10 @@ module gpumodule
       real(fp_kind), device, allocatable   :: ptranx(:)
       real(fp_kind), device, allocatable   :: ptrany(:)
       real(fp_kind), device, allocatable   :: ptranz(:)
+      real(fp_kind), allocatable   :: pmetro_h(:)
+      real(fp_kind), allocatable   :: ptranx_h(:)
+      real(fp_kind), allocatable   :: ptrany_h(:)
+      real(fp_kind), allocatable   :: ptranz_h(:)
       !real(8),device, allocatable    :: dtran_d(:)
      ! real(8),device, allocatable :: prandom
       !integer(4),parameter    :: isamp = 1   ! sequential 0 or random 1
@@ -63,13 +67,15 @@ module gpumodule
 
                lhsoverlap = .false.
                E_g = 0.0
-               call GenerateRandoms<<<iblock1,128>>>
-               ierr = cudaGetLastError()
-               ierra = cudaDeviceSynchronize()
+               !call GenerateRandoms_h
+               !call GenerateRandoms<<<iblock1,128>>>
+               !ierr = cudaGetLastError()
+               !ierra = cudaDeviceSynchronize()
                write(*,*) "Randoms"
-               if (ierr /= cudaSuccess) write(*,*) "Sync kernel error: ", cudaGetErrorString(ierr)
-               if (ierra /= cudaSuccess) write(*,*) "Async kernel err: ", cudaGetErrorString(ierra)
-               call CalcNewPositions<<<iblock1,128>>>
+               !if (ierr /= cudaSuccess) write(*,*) "Sync kernel error: ", cudaGetErrorString(ierr)
+               !if (ierra /= cudaSuccess) write(*,*) "Async kernel err: ", cudaGetErrorString(ierra)
+               !call CalcNewPositions<<<iblock1,128>>>
+               call CalcNewPositions<<<1,1>>>
                ierr = cudaGetLastError()
                ierra = cudaDeviceSynchronize()
                write(*,*) "Positions"
@@ -133,6 +139,27 @@ module gpumodule
             ptranz = 0.0
          end if
 
+
+
+         if (.not.allocated(pmetro_h)) then
+            allocate(pmetro_h(np))
+            pmetro_h = 0.0
+         end if
+
+         if (.not.allocated(ptranx_h)) then
+            allocate(ptranx_h(np))
+            ptranx_h = 0.0
+         end if
+
+         if (.not.allocated(ptrany_h)) then
+            allocate(ptrany_h(np))
+            ptrany_h = 0.0
+         end if
+
+         if (.not.allocated(ptranz_h)) then
+            allocate(ptranz_h(np))
+            ptranz_h = 0.0
+         end if
          !if (.not.allocated(dtran_d)) then
          !   allocate(dtran_d(npt))
          !   dtran_d = 0.0
@@ -149,6 +176,7 @@ module gpumodule
          end if
 
                iblock1 = np / 128
+               if (np < 128) iblock1 = 1
                if ( np > 122880) then
                   iloops = 4
                   iloops_d = 4
@@ -167,7 +195,7 @@ module gpumodule
                   iblock2 = iblock1
                end if
 
-         call GenerateSeeds
+        ! call GenerateSeeds
 
       end subroutine PrepareMC_cudaAll
 
@@ -187,10 +215,6 @@ module gpumodule
             implicit none
             integer(4) ::  id
 
-            !call curandGenerateUniform(gen,pmetro,numpart)
-            !call curandGenerateUniform(gen,ptranx,numpart)
-            !call curandGenerateUniform(gen,ptrany,numpart)
-            !call curandGenerateUniform(gen,ptranz,numpart)
 
             id = (blockidx%x-1)*blocksize + threadIDx%x
                call Random_d(seeds_d(id),pmetro(id),id)
@@ -206,6 +230,26 @@ module gpumodule
 
 
       end subroutine GenerateRandoms
+
+      subroutine GenerateRandoms_h
+
+            use Random_Module
+            implicit none
+            integer(4) ::  id
+
+            do id = 1, np
+               ptranx_h(id) = Random_h(iseed)
+               ptrany_h(id) = Random_h(iseed)
+               ptranz_h(id) = Random_h(iseed)
+               pmetro_h(id) = Random_h(iseed)
+            end do
+               pmetro = pmetro_h
+               ptranx = ptranx_h
+               ptrany = ptrany_h
+               ptranz = ptranz_h
+
+
+      end subroutine GenerateRandoms_h
 
       !! subroutine CalcNewPositions
       !! running on device, calling from device
@@ -226,17 +270,24 @@ module gpumodule
       !!              iptpn(np): particle type of the particles
       attributes(global) subroutine CalcNewPositions
 
+            use Random_Module
+            use mol_cuda
             implicit none
             integer(4)            :: id, id_int
-            real(8), parameter     :: Half = 0.5d0
+       !     real(8), parameter     :: Half = 0.5d0
 
-            id = (blockidx%x-1)*blockDim%x + threadIDx%x
+            !id = (blockidx%x-1)*blockDim%x + threadIDx%x
 
-            rotm_d(1,id) = ro_d(1,id) + (ptranx(id)-Half)*dtran_d(iptpn_d(id))
-            rotm_d(2,id) = ro_d(2,id) + (ptrany(id)-Half)*dtran_d(iptpn_d(id))
-            rotm_d(3,id) = ro_d(3,id) + (ptranz(id)-Half)*dtran_d(iptpn_d(id))
+            !rotm_d(1,id) = ro_d(1,id) + (ptranx(id)-Half)*dtran_d(iptpn_d(id))
+            !rotm_d(2,id) = ro_d(2,id) + (ptrany(id)-Half)*dtran_d(iptpn_d(id))
+            !rotm_d(3,id) = ro_d(3,id) + (ptranz(id)-Half)*dtran_d(iptpn_d(id))
+            do id =1, np_d
+            rotm_d(1,id) = ro_d(1,id) + (Random_dev(iseed_d)-Half)*dtran_d(iptpn_d(id))
+            rotm_d(2,id) = ro_d(2,id) + (Random_dev(iseed_d)-Half)*dtran_d(iptpn_d(id))
+            rotm_d(3,id) = ro_d(3,id) + (Random_dev(iseed_d)-Half)*dtran_d(iptpn_d(id))
 
             call PBC_cuda(rotm_d(1,id),rotm_d(2,id),rotm_d(3,id))
+            end do
 
       end subroutine CalcNewPositions
 
@@ -294,170 +345,179 @@ module gpumodule
                !gg = this_grid()
                id = ((blockIDx%x-1) * blocksize + threadIDx%x)+(np_d/nloop *(ipart-1))
                id_int = threadIDx%x
-               rotmx(id_int) = rotm_d(1,id)
-               rotmy(id_int) = rotm_d(2,id)
-               rotmz(id_int) = rotm_d(3,id)
-               rox(id_int) = ro_d(1,id)
-               roy(id_int) = ro_d(2,id)
-               roz(id_int) = ro_d(3,id)
-               iptip_s(id_int) = iptpn_d(id)
-               iptjp_s(id_int) = 0
-               E_s(id_int) = E_g(id)
-               rdist(id_int) = 0.0
-               lhsoverlap(id_int) = .false.
-               iptip_s(id_int) = iptpn_d(id)
-               lchain_s = lchain_d
-              ! ipcharge_s(id_int) = ipcharge(id)
-              if (id_int == 1) then
-                 numblocks = np_d / blocksize
-               npt_s = npt_d
-                  iblock = numblocks / nloop * (ipart - 1)
-              end if
-              call syncthreads
-               if ( id_int <= npt_s) then
-                  do i=1, npt_s
-                     !fac(id_int,i) = facscr_d(id_int,i)
-                     !sig_s(id_int,i) = sig(id_int,i)
-                     !eps_s(id_int,i) = eps(id_int,i)
-                     rsumrad_s(id_int,i) = rsumrad(id_int,i)
-                  end do
-               end if
-
-
-
-              call syncthreads
-
-          !! calculate particles that are in other blocks
-            do j =blockIDx%x + iblock, (ceiling(numblocks) - 1)
-               rojx(id_int) = ro_d(1,id_int+j*blocksize)
-               rojy(id_int) = ro_d(2,id_int+j*blocksize)
-               rojz(id_int) = ro_d(3,id_int+j*blocksize)
-               iptjp_s(id_int) = iptpn_d(id_int+j*blocksize)
-               call syncthreads
-               do i=1, blocksize
-                  !new energy
-                     dx(id_int) = rojx(i) - rotmx(id_int)
-                     dy(id_int) = rojy(i) - rotmy(id_int)
-                     dz(id_int) = rojz(i) - rotmz(id_int)
-                  !   rdist(id_int) = (rojx(i)-rotmx(id_int))**2 + (rojy(i)-rotmy(id_int))**2 + (rojz(i) - rotmz(id_int))**2
-                     call PBCr2_cuda(dx(id_int),dy(id_int),dz(id_int),rdist(id_int))
-                     if (rdist(id_int) < rsumrad_s(iptip_s(id_int),iptjp_s(i))) then
-                        lhsoverlap(id_int) = .true.
-                     end if
-                     !E_s(id_int) = E_s(id_int) + fac(iptip_s(id_int),iptjp_s(i))/rdist(id_int) + 4*eps_s(iptip_s(id_int),iptjp_s(i))*&
-                       ! ((sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**12 - &
-                       ! (sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**6)
-                     rdist(id_int) = sqrt(rdist(id_int))
-                     E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist(id_int))**12 - (6.0/rdist(id_int))**6)
-!                     do
-!                        if (rdist(id_int) >= ubuf_d(ibuf)) exit
-!                        ibuf = ibuf+12
-!                     end do
-!                        d = rdist(id_int) - ubuf_d(ibuf)
-!                     E_s(id_int) = E_s(id_int) + ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
-!                           d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
-                  !old energy
-                     dx(id_int) = rojx(i) - rox(id_int)
-                     dy(id_int) = rojy(i) - roy(id_int)
-                     dz(id_int) = rojz(i) - roz(id_int)
-                     call PBCr2_cuda(dx(id_int),dy(id_int),dz(id_int),rdist(id_int))
-                     !E_s(id_int) = E_s(id_int) - fac(iptip_s(id_int),iptjp_s(i))/rdist(id_int) - 4*eps_s(iptip_s(id_int),iptjp_s(i))*&
-                     !   ((sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**12 - &
-                     !   (sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**6)
-                     !E_s(id_int) = E_s(id_int) - 4*eps_s(iptip_s(id_int),iptjp_s(i))*&
-                     !   ((sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**12 - &
-                     !   (sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**6)
-                     rdist(id_int) = sqrt(rdist(id_int))
-                     E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist(id_int))**12 - (6.0/rdist(id_int))**6)
-                     !do
-                     !   if (rdist(id_int) >= ubuf_d(ibuf)) exit
-                     !   ibuf = ibuf+12
-                     !end do
-                     !   d = rdist(id_int) - ubuf_d(ibuf)
-                     !E_s(id_int) = E_s(id_int) - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
-                     !      d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
-               end do
-               call syncthreads
-            end do
-            !print *, E_s(id_int), id
-
-            !! calculate particles that are in the same block
-               call syncthreads
-            do i= 1, blocksize
-                  !new energy
-                  if (id_int < i) then
-                     dx(id_int) = rox(i) - rotmx(id_int)
-                     dy(id_int) = roy(i) - rotmy(id_int)
-                     dz(id_int) = roz(i) - rotmz(id_int)
-                     call PBCr2_cuda(dx(id_int),dy(id_int),dz(id_int),rdist(id_int))
-                     if (rdist(id_int) < rsumrad_s(iptip_s(id_int),iptjp_s(i))) then
-                        lhsoverlap(id_int) = .true.
-                     end if
-                     !E_s(id_int) = E_s(id_int) + fac(iptip_s(id_int),iptip_s(i))/rdist(id_int) + 4*eps_s(iptip_s(id_int),iptip_s(i))*&
-                     !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
-                     !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
-                     !E_s(id_int) = E_s(id_int) + 4*eps_s(iptip_s(id_int),iptip_s(i))*&
-                     !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
-                     !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
-                     rdist(id_int) = sqrt(rdist(id_int))
-                     E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist(id_int))**12 - (6.0/rdist(id_int))**6)
-                     !do
-                     !   if (rdist(id_int) >= ubuf_d(ibuf)) exit
-                     !   ibuf = ibuf+12
-                     !end do
-                     !   d = rdist(id_int) - ubuf_d(ibuf)
-                     !E_s(id_int) = E_s(id_int) + ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
-                     !      d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
-                  !old energy
-                     dx(id_int) = rox(i) - rox(id_int)
-                     dy(id_int) = roy(i) - roy(id_int)
-                     dz(id_int) = roz(i) - roz(id_int)
-                     call PBCr2_cuda(dx(id_int),dy(id_int),dz(id_int),rdist(id_int))
-                     !E_s(id_int) = E_s(id_int) - fac(iptip_s(id_int),iptip_s(i))/rdist(id_int) - 4*eps_s(iptip_s(id_int),iptip_s(i))*&
-                     !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
-                     !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
-                     !E_s(id_int) = E_s(id_int) - 4*eps_s(iptip_s(id_int),iptip_s(i))*&
-                     !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
-                     !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
-                     rdist(id_int) = sqrt(rdist(id_int))
-                     E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist(id_int))**12 - (6.0/rdist(id_int))**6)
-                     !do
-                     !   if (rdist(id_int) >= ubuf_d(ibuf)) exit
-                     !   ibuf = ibuf+12
-                     !end do
-                     !   d = rdist(id_int) - ubuf_d(ibuf)
-                     !E_s(id_int) = E_s(id_int) - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
-                     !      d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
+               if (id <= np_d) then
+                  rotmx(id_int) = rotm_d(1,id)
+                  rotmy(id_int) = rotm_d(2,id)
+                  rotmz(id_int) = rotm_d(3,id)
+                  rox(id_int) = ro_d(1,id)
+                  roy(id_int) = ro_d(2,id)
+                  roz(id_int) = ro_d(3,id)
+                  iptip_s(id_int) = iptpn_d(id)
+                  iptjp_s(id_int) = 0
+                  E_s(id_int) = E_g(id)
+                  rdist(id_int) = 0.0
+                  lhsoverlap(id_int) = .false.
+                  iptip_s(id_int) = iptpn_d(id)
+                  lchain_s = lchain_d
+                 ! ipcharge_s(id_int) = ipcharge(id)
+                 if (id_int == 1) then
+                    numblocks = np_d / blocksize
+                  npt_s = npt_d
+                     iblock = numblocks / nloop * (ipart - 1)
+                 end if
+                 call syncthreads
+                  if ( id_int <= npt_s) then
+                     do i=1, npt_s
+                        !fac(id_int,i) = facscr_d(id_int,i)
+                        !sig_s(id_int,i) = sig(id_int,i)
+                        !eps_s(id_int,i) = eps(id_int,i)
+                        rsumrad_s(id_int,i) = rsumrad(id_int,i)
+                     end do
                   end if
-            end do
 
-               if (lchain_s) then
-                     bondk_s = bond_d_k(1)
-                     bondeq_s = bond_d_eq(1)
-                     bondp_s = bond_d_p(1)
-                  do i= 1, 2
-                     !ibond_s(i,id_int) = ibond_d(i,id)
-                     if (id < bondnn_d(i,id)) then
-                        dx(id_int) = ro_d(1, bondnn_d(i,id)) - rotmx(id_int)
-                        dy(id_int) = ro_d(2, bondnn_d(i,id)) - rotmy(id_int)
-                        dz(id_int) = ro_d(3, bondnn_d(i,id)) - rotmz(id_int)
-                        call PBCr2_cuda(dx(id_int),dy(id_int),dz(id_int),rdist(id_int))
-                        rdist(id_int) = sqrt(rdist(id_int))
-                       ! print *, "upper: ", bond_d(i,id), id, rdist(id_int)
-                        E_s(id_int) = E_s(id_int) + bondk_s*(rdist(id_int) - bondeq_s)**bondp_s
 
-                        dx(id_int) = ro_d(1, bondnn_d(i,id)) - rox(id_int)
-                        dy(id_int) = ro_d(2, bondnn_d(i,id)) - roy(id_int)
-                        dz(id_int) = ro_d(3, bondnn_d(i,id)) - roz(id_int)
+
+                 call syncthreads
+
+             !! calculate particles that are in other blocks
+               do j =blockIDx%x + iblock, (ceiling(numblocks) - 1)
+                  rojx(id_int) = ro_d(1,id_int+j*blocksize)
+                  rojy(id_int) = ro_d(2,id_int+j*blocksize)
+                  rojz(id_int) = ro_d(3,id_int+j*blocksize)
+                  iptjp_s(id_int) = iptpn_d(id_int+j*blocksize)
+                  call syncthreads
+                  do i=1, blocksize
+                     if (j*blocksize <= np_d) then
+                     !new energy
+                        dx(id_int) = rojx(i) - rotmx(id_int)
+                        dy(id_int) = rojy(i) - rotmy(id_int)
+                        dz(id_int) = rojz(i) - rotmz(id_int)
+                     !   rdist(id_int) = (rojx(i)-rotmx(id_int))**2 + (rojy(i)-rotmy(id_int))**2 + (rojz(i) - rotmz(id_int))**2
                         call PBCr2_cuda(dx(id_int),dy(id_int),dz(id_int),rdist(id_int))
+                        if (rdist(id_int) < rsumrad_s(iptip_s(id_int),iptjp_s(i))) then
+                           lhsoverlap(id_int) = .true.
+                        end if
+                        !E_s(id_int) = E_s(id_int) + fac(iptip_s(id_int),iptjp_s(i))/rdist(id_int) + 4*eps_s(iptip_s(id_int),iptjp_s(i))*&
+                          ! ((sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**12 - &
+                          ! (sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**6)
                         rdist(id_int) = sqrt(rdist(id_int))
-                        E_s(id_int) = E_s(id_int) - bondk_s*(rdist(id_int) - bondeq_s)**bondp_s
+                        E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist(id_int))**12 - (6.0/rdist(id_int))**6)
+   !                     do
+   !                        if (rdist(id_int) >= ubuf_d(ibuf)) exit
+   !                        ibuf = ibuf+12
+   !                     end do
+   !                        d = rdist(id_int) - ubuf_d(ibuf)
+   !                     E_s(id_int) = E_s(id_int) + ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+   !                           d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
+                     !old energy
+                        dx(id_int) = rojx(i) - rox(id_int)
+                        dy(id_int) = rojy(i) - roy(id_int)
+                        dz(id_int) = rojz(i) - roz(id_int)
+                        call PBCr2_cuda(dx(id_int),dy(id_int),dz(id_int),rdist(id_int))
+                        !E_s(id_int) = E_s(id_int) - fac(iptip_s(id_int),iptjp_s(i))/rdist(id_int) - 4*eps_s(iptip_s(id_int),iptjp_s(i))*&
+                        !   ((sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**12 - &
+                        !   (sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**6)
+                        !E_s(id_int) = E_s(id_int) - 4*eps_s(iptip_s(id_int),iptjp_s(i))*&
+                        !   ((sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**12 - &
+                        !   (sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**6)
+                        rdist(id_int) = sqrt(rdist(id_int))
+                        E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist(id_int))**12 - (6.0/rdist(id_int))**6)
+                        !do
+                        !   if (rdist(id_int) >= ubuf_d(ibuf)) exit
+                        !   ibuf = ibuf+12
+                        !end do
+                        !   d = rdist(id_int) - ubuf_d(ibuf)
+                        !E_s(id_int) = E_s(id_int) - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                        !      d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
                      end if
-
                   end do
-               end if
+                  call syncthreads
+               end do
+               !print *, E_s(id_int), id
 
-               E_g(id) = E_s(id_int)
+               !! calculate particles that are in the same block
+                  call syncthreads
+               do i= 1, blocksize
+                     !new energy
+                     if (id_int <= i) then
+                        if ((blockIDx%x-1)*blockDim%x + i <= np_d) then
+                        dx(id_int) = rox(i) - rotmx(id_int)
+                        dy(id_int) = roy(i) - rotmy(id_int)
+                        dz(id_int) = roz(i) - rotmz(id_int)
+                        call PBCr2_cuda(dx(id_int),dy(id_int),dz(id_int),rdist(id_int))
+                        if (rdist(id_int) < rsumrad_s(iptip_s(id_int),iptjp_s(i))) then
+                           lhsoverlap(id_int) = .true.
+                        end if
+                        !E_s(id_int) = E_s(id_int) + fac(iptip_s(id_int),iptip_s(i))/rdist(id_int) + 4*eps_s(iptip_s(id_int),iptip_s(i))*&
+                        !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
+                        !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
+                        !E_s(id_int) = E_s(id_int) + 4*eps_s(iptip_s(id_int),iptip_s(i))*&
+                        !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
+                        !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
+                        rdist(id_int) = sqrt(rdist(id_int))
+                        E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist(id_int))**12 - (6.0/rdist(id_int))**6)
+                        !do
+                        !   if (rdist(id_int) >= ubuf_d(ibuf)) exit
+                        !   ibuf = ibuf+12
+                        !end do
+                        !   d = rdist(id_int) - ubuf_d(ibuf)
+                        !E_s(id_int) = E_s(id_int) + ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                        !      d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
+                     !old energy
+                        dx(id_int) = rox(i) - rox(id_int)
+                        dy(id_int) = roy(i) - roy(id_int)
+                        dz(id_int) = roz(i) - roz(id_int)
+                        call PBCr2_cuda(dx(id_int),dy(id_int),dz(id_int),rdist(id_int))
+                        !E_s(id_int) = E_s(id_int) - fac(iptip_s(id_int),iptip_s(i))/rdist(id_int) - 4*eps_s(iptip_s(id_int),iptip_s(i))*&
+                        !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
+                        !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
+                        !E_s(id_int) = E_s(id_int) - 4*eps_s(iptip_s(id_int),iptip_s(i))*&
+                        !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
+                        !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
+                        rdist(id_int) = sqrt(rdist(id_int))
+                        print *, "tm: ", id, rotmx(id_int), rotmy(id_int), rotmz(id_int)
+                        print *, "ol ", i, ro_d(1,i), ro_d(2,i), ro_d(3,i)
+                        print *, id, i, rdist(id_int)
+                        E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist(id_int))**12 - (6.0/rdist(id_int))**6)
+                        !do
+                        !   if (rdist(id_int) >= ubuf_d(ibuf)) exit
+                        !   ibuf = ibuf+12
+                        !end do
+                        !   d = rdist(id_int) - ubuf_d(ibuf)
+                        !E_s(id_int) = E_s(id_int) - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                        !      d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
+                     end if
+                  end if
+               end do
+
+                  if (lchain_s) then
+                        bondk_s = bond_d_k(1)
+                        bondeq_s = bond_d_eq(1)
+                        bondp_s = bond_d_p(1)
+                     do i= 1, 2
+                        !ibond_s(i,id_int) = ibond_d(i,id)
+                        if (id < bondnn_d(i,id)) then
+                           dx(id_int) = ro_d(1, bondnn_d(i,id)) - rotmx(id_int)
+                           dy(id_int) = ro_d(2, bondnn_d(i,id)) - rotmy(id_int)
+                           dz(id_int) = ro_d(3, bondnn_d(i,id)) - rotmz(id_int)
+                           call PBCr2_cuda(dx(id_int),dy(id_int),dz(id_int),rdist(id_int))
+                           rdist(id_int) = sqrt(rdist(id_int))
+                          ! print *, "upper: ", bond_d(i,id), id, rdist(id_int)
+                           E_s(id_int) = E_s(id_int) + bondk_s*(rdist(id_int) - bondeq_s)**bondp_s
+
+                           dx(id_int) = ro_d(1, bondnn_d(i,id)) - rox(id_int)
+                           dy(id_int) = ro_d(2, bondnn_d(i,id)) - roy(id_int)
+                           dz(id_int) = ro_d(3, bondnn_d(i,id)) - roz(id_int)
+                           call PBCr2_cuda(dx(id_int),dy(id_int),dz(id_int),rdist(id_int))
+                           rdist(id_int) = sqrt(rdist(id_int))
+                           E_s(id_int) = E_s(id_int) - bondk_s*(rdist(id_int) - bondeq_s)**bondp_s
+                        end if
+
+                     end do
+                  end if
+
+                  E_g(id) = E_s(id_int)
+            end if
 
       end subroutine CalculateUpperPart
 
@@ -470,6 +530,7 @@ module gpumodule
          use cooperative_groups
          use precision_m
          use mol_cuda
+         use Random_Module
          implicit none
 
          !logical, intent(in)  :: lboxoverlap ! =.true. if box overlap
@@ -520,6 +581,7 @@ module gpumodule
                gg = this_grid()
                id = ((blockIDx%x-1) * blocksize + threadIDx%x)+(np_d/nloop*(ipart-1))
                id_int = threadIDx%x
+               if (id <= np_d) then
                if (id == 1) print *, "kernel starts"
                call syncthreads(gg)
                rotmx(id_int) = rotm_d(1,id)
@@ -560,7 +622,8 @@ module gpumodule
                   fac_metro = exp(-beta_d*E_s(id_int))
                   if (fac_metro > One) then
                      iaccept_d = imcaccept_d
-                  else if (fac_metro > pmetro(id)) then
+                  !else if (fac_metro > pmetro(id)) then
+                  else if (fac_metro > Random_dev(iseed_d)) then
                      iaccept_d = imcaccept_d
                   else
                      iaccept_d = imcreject_d
@@ -607,18 +670,25 @@ module gpumodule
                      !E_s(id_int) = E_s(id_int) + 4*eps_s(iptip_s(id_int),iptpn_d(i))*&
                      !          ((sig_s(iptip_s(id_int),iptpn_d(i))/rdist(id_int))**12 - &
                      !          (sig_s(iptip_s(id_int),iptpn_d(i))/rdist(id_int))**6)
-                     !rdist = sqrt(rdist)
-                     !E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
-                     ibuf = iubuflow_d(iptpt_d(iptip_s,iptpn_d(i)))
-                     !ibuf = 1
-                     !print *, ibuf
-                     do
-                        if (rdist >= ubuf_d(ibuf)) exit
-                        ibuf = ibuf+12
-                     end do
-                        d = rdist - ubuf_d(ibuf)
-                     E_s(id_int) = E_s(id_int) + ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
-                           d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
+                     rdist = sqrt(rdist)
+                     print *, id, rotmx(id_int), rotmy(id_int), rotmz(id_int)
+                     print *, i, ro_d(1,i), ro_d(2,i), ro_d(3,i)
+                     print *, id, i, rdist
+                     E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
+                     !else if (rdist > rcut2_d) then
+                        !nothing
+                     !else
+                     !   ibuf = iubuflow_d(iptpt_d(iptip_s,iptpn_d(i)))
+                        !ibuf = 1
+                        !print *, ibuf
+                     !   do
+                     !      if (rdist >= ubuf_d(ibuf)) exit
+                     !      ibuf = ibuf+12
+                     !   end do
+                     !      d = rdist - ubuf_d(ibuf)
+                     !   E_s(id_int) = E_s(id_int) + ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                     !         d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
+                     !end if
                   !old energy
                      dx = ro_d(1,i) - rox(id_int)
                      dy = ro_d(2,i) - roy(id_int)
@@ -630,16 +700,20 @@ module gpumodule
                      !E_s(id_int) = E_s(id_int) - 4*eps_s(iptip_s(id_int),iptpn_d(i))*&
                      !          ((sig_s(iptip_s(id_int),iptpn_d(i))/rdist(id_int))**12 - &
                      !          (sig_s(iptip_s(id_int),iptpn_d(i))/rdist(id_int))**6)
-                     !rdist = sqrt(rdist)
-                     !E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
-                     ibuf = iubuflow_d(iptpt_d(iptip_s,iptpn_d(i)))
-                     do
-                        if (rdist >= ubuf_d(ibuf)) exit
-                        ibuf = ibuf+12
-                     end do
-                        d = rdist - ubuf_d(ibuf)
-                     E_s(id_int) = E_s(id_int) - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
-                           d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
+                     rdist = sqrt(rdist)
+                     E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
+                     print *, id, i, E_s(id_int)
+                    ! if ( rdist > rcut2_d) then
+                    !    ibuf = iubuflow_d(iptpt_d(iptip_s,iptpn_d(i)))
+                    ! else
+                    !    do
+                    !       if (rdist >= ubuf_d(ibuf)) exit
+                     !      ibuf = ibuf+12
+                     !   end do
+                     !      d = rdist - ubuf_d(ibuf)
+                     !   E_s(id_int) = E_s(id_int) - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                     !         d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
+                     !end if
             end if
 
                if (lchain_s) then
@@ -666,6 +740,7 @@ module gpumodule
                end if
             call syncthreads(gg)
          end do
+      end if
 
          !if ( id == 1) print *, "steps", countsteps
 

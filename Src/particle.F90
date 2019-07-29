@@ -254,6 +254,19 @@ subroutine Particle(iStage)
          read(uin,nmlRepeating)
       end if
 
+!!!! debug
+         !do ict = 1, nct
+         !   write(*,*) ict, " nblock: ", nblockict(ict)
+         !   do ipt = 1, nblo
+         !      write(*,*) "type: ",ipt, rep_iblock_ict(ipt,ict)%pt
+         !      write(*,*) "length: ",ipt, rep_iblock_ict(ipt,ict)%np
+         !   end do
+         !end do
+
+
+
+
+
 ! ... read input data (nmlCopolymerSequence)
 
       if(any(txcopolymer(1:nct) == 'sequence')) then

@@ -439,6 +439,13 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
              ! istat = atomicAdd(utwobold_d(iptjpt),usum) 
         end if
      end if
+     if (ip <= 4 .and. jp <= 4) then
+        if (ip > 0 .and. jp > 0) then
+         print *, "tm: ", ip, ro_d(1,iploc), ro_d(2,iploc), ro_d(3,iploc)
+         print *, "old: ", jp, ro_d(1,jp), ro_d(2,jp), ro_d(3,jp)
+         print *, ip, jp, r2
+        end if
+     end if
 
   400 continue
        call syncthreads

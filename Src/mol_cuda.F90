@@ -13,8 +13,9 @@ module mol_cuda
    logical,device       :: lbcto_d                  ! truncated octahedral cell
    real(fp_kind),device       :: boxlen_d(3)
    real(fp_kind),device       :: boxlen2_d(3)             ! boxlen/2
+   real(fp_kind),device       :: boxleni_d(3)             ! boxlen/2
+   real(fp_kind),device       :: dpbc_d(3)             ! /2
    logical,device       :: lPBC_d                   ! periodic boundary conditions
-   real(fp_kind),device       :: dpbc_d(3)                ! =boxlen for some pbc, otherwise zero
    integer(4),device              :: np_d           ! number of particles
    integer(4), device    :: nptpt_d                  ! number of different particle type pairs
    integer(4), device    :: npt_d
@@ -60,6 +61,30 @@ module mol_cuda
 
    integer(4) :: threadssum
    integer(4),device :: threadssum_d
+
+   ! bondings
+   real(fp_kind), device, allocatable :: bond_d_k(:)
+   real(fp_kind), device, allocatable :: bond_d_eq(:)
+   real(fp_kind), device, allocatable :: bond_d_p(:)
+   integer(4), device, allocatable :: bondnn_d(:,:)
+   logical, device :: lchain_d
+   real(fp_kind), device, allocatable :: rsumrad(:,:)
+   real(fp_kind), allocatable :: rsumrad_h(:,:)
+   real(fp_kind), device, allocatable :: sig(:)
+   real(fp_kind), device, allocatable :: eps(:)
+
+   integer(4), allocatable :: seedsnp(:)
+   integer(4), device, allocatable :: seeds_d(:)
+
+   real(fp_kind), device :: beta_d
+
+   logical :: lseq
+
+   real(fp_kind), device, allocatable :: dtran_d(:)
+
+   real(8) :: u_aux
+   integer(4), device :: iseed_d
+
    contains
 
 
@@ -67,19 +92,21 @@ subroutine AllocateDeviceParams
 
 
         use NListModule
+        use Random_Module
         implicit none
 
         integer(4) :: istat
 
    if(ltime) call CpuAdd('start', 'allocation', 1, uout)
         allocate(iptpt_d(npt,npt))
-        allocate(jpnlist_d(maxnneigh,npartperproc))
+        !allocate(jpnlist_d(maxnneigh,npartperproc))
         allocate(utwob_d(0:nptpt))
         allocate(ro_d(3,np_alloc))
         allocate(r2umin_d(natat))
         allocate(r2atat_d(natat))
         allocate(iubuflow_d(natat))
         allocate(nneighpn_d(np_alloc))
+        write(*,*) "1"
         allocate(iptpn_d(np_alloc))
         allocate(ubuf_d(nbuf))
         allocate(rotm_d(3,np_alloc))
@@ -89,6 +116,26 @@ subroutine AllocateDeviceParams
         allocate(utwobnew_d(0:nptpt))
         allocate(utwobold_d(0:nptpt))
         allocate(dutwobold(0:nptpt))
+        write(*,*) "2"
+        write(*,*) "1"
+        allocate(seedsnp(np_alloc))
+        write(*,*) "2"
+        allocate(seeds_d(np_alloc))
+        write(*,*) "3"
+        allocate(bondnn_d(2,np_alloc))
+        write(*,*) "4"
+        allocate(rsumrad(npt,npt))
+        write(*,*) "5"
+        allocate(rsumrad_h(npt,npt))
+        write(*,*) "6"
+        allocate(dtran_d(npt))
+        write(*,*) "7"
+        allocate(bond_d_k(npt))
+        allocate(bond_d_eq(npt))
+        allocate(bond_d_p(npt))
+        allocate(ix_d(np_alloc))
+        allocate(iy_d(np_alloc))
+        allocate(am_d(np_alloc))
    if(ltime) call CpuAdd('stop', 'allocation', 1, uout)
 
 
@@ -97,9 +144,10 @@ end subroutine AllocateDeviceParams
 subroutine TransferConstantParams
 
         use Molmodule
+        use Random_Module
         implicit none
         
-        integer(4) :: istat
+        integer(4) :: istat, ipt, jpt
         !istat = cudaMemcpy(boxlen2_d,boxlen2,3)
         !istat = cudaMemcpy(boxlen_d, boxlen,3)
         !istat = cudaMemcpy(dpbc_d, dpbc,3)
@@ -123,6 +171,7 @@ subroutine TransferConstantParams
    if(ltime) call CpuAdd('start', 'transferconstant', 1, uout)
         boxlen2_d = boxlen2
         boxlen_d = boxlen
+        boxleni_d = boxleni
         dpbc_d = dpbc
         lPBC_d = lPBC
         lbcbox_d = lbcbox
@@ -145,14 +194,35 @@ subroutine TransferConstantParams
         lsuperball_d = lsuperball
         lptmdutwob_d = lptmdutwob
         iinteractions_d = iinteractions
+        lchain_d = lchain
+   if(lchain) then
+        bond_d_k = bond%k
+        bond_d_eq = bond%eq
+        bond_d_p = bond%p
+        bondnn_d = bondnn
+   end if
 
         lcuda = .true.
+        lseq = .true.
 
         ro_d = ro
         sizeofblocks_d = 512
         threadssum =16
         threadssum_d = threadssum
+
+        seeds_d = seedsnp
+        beta_d = beta
+        do ipt =1, npt
+           do jpt = 1, npt
+              rsumrad_h(ipt,jpt) = (radat(ipt) + radat(jpt))**2
+           end do
+        end do
+        rsumrad = rsumrad_h
    if(ltime) call CpuAdd('stop', 'transferconstant', 1, uout)
+        ix_dev = ix
+        iy_dev = iy
+        am_dev = am
+        iseed_d = iseed
 
 end subroutine TransferConstantParams
 
@@ -160,7 +230,7 @@ subroutine TransferVarParamsToDevice
 
         use NListModule
         implicit none
-        
+
         integer(4) :: istat
         !istat = cudaMemcpy2D(ro_d,ro,3*np)
 
@@ -172,7 +242,7 @@ subroutine TransferVarParamsToDevice
         virial_d = virial
         !istat = cudaMemcpy(nneighpn_d,nneighpn,np)
         nneighpn_d = nneighpn
-        jpnlist_d = jpnlist
+        !jpnlist_d = jpnlist
         utot_d = u%tot
         virtwob_d = 0.0
    if(ltime) call CpuAdd('start', 'transferVartoDevice', 1, uout)
@@ -255,6 +325,16 @@ subroutine TransferDUTotalVarToHost
 
 end subroutine TransferDUTotalVarToHost
 
+subroutine TransferStatsToHost
+
+   implicit none
+    integer(4) :: istat, ip
+
+    ro = ro_d
+    u%tot = utot_d
+
+end subroutine TransferStatsToHost
+
 
 !************************************************************************
 !> \page PBCr2_cuda
@@ -304,7 +384,34 @@ attributes(device) subroutine PBCr2_cuda(dx,dy,dz,r2)!,boxlen,boxlen2,lPBC,lbcbo
 
 end subroutine PBCr2_cuda
 
+subroutine GenerateSeeds
 
+   use Random_Module
+   implicit none
+   integer(4) :: ip
+
+   do ip = 1, np
+     seedsnp(ip) = Random_int(iseed)
+     seedsnp(ip) = -abs(seedsnp(ip))
+   end do
+   seeds_d = seedsnp
+
+
+end subroutine
+
+ attributes(device) subroutine PBC_cuda(dx, dy, dz)
+
+ use precision_m
+ implicit none
+ real(fp_kind), intent(inout)  :: dx, dy, dz
+
+ if (lpbc_d) then
+    if (abs(dx) > boxlen2_d(1)) dx = dx - dpbc_d(1) * ANINT(dx*boxleni_d(1))
+    if (abs(dy) > boxlen2_d(2)) dy = dy - dpbc_d(2) * ANINT(dy*boxleni_d(2))
+    if (abs(dz) > boxlen2_d(3)) dz = dz - dpbc_d(3) * ANINT(dz*boxleni_d(3))
+ end if
+
+ end subroutine PBC_cuda
 
 
 
