@@ -45,6 +45,10 @@ module MolModule
    integer(4), parameter :: mnpt  = 10                ! max number of particle types (used for input variables)
    integer(4), parameter :: mnat  = 10                ! max number of atom types (used for input variables)
 
+   integer(4) :: iseed2
+   integer(4),device :: iseed2_d
+
+
    real(8),    parameter :: Zero        = 0.0d0
    real(8),    parameter :: One         = 1.0d0
    real(8),    parameter :: ThreeHalf   = 1.5d0

@@ -584,6 +584,8 @@ subroutine IOSystem(iStage)
          ! initialize with a negative numberthe random number generator to set the value of am (see Random function)
          iseedtmp = -abs(iseed)
          raux = Random(iseedtmp)
+         iseed2 = -1456
+         iseed2_d = iseed2
          ! set the ix and iy values as requested in the input file
          ix = ixseed
          iy = iyseed

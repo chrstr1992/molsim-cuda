@@ -5158,6 +5158,7 @@ end subroutine CheckAtomBCTM
 subroutine Metropolis(lboxoverlap, lhsoverlap, lhepoverlap, weight, dured)
 
    use MCModule
+   use Random_Module
    implicit none
 
    logical, intent(in)  :: lboxoverlap ! =.true. if box overlap
@@ -5188,7 +5189,7 @@ subroutine Metropolis(lboxoverlap, lhsoverlap, lhepoverlap, weight, dured)
       fac = weight*exp(-dured)
       if (fac > One) then
          ievent = imcaccept
-      else if (fac > Random(iseed)) then
+      else if (fac > Random_h2(iseed2)) then
          ievent = imcaccept
       else
          ievent = imcreject

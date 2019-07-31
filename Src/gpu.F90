@@ -25,6 +25,7 @@ module gpumodule
       integer(4),device              :: imchsreject_d = 4
       integer(4),device              :: imchepreject_d = 5
       integer(4),device              :: imovetype_d = 1
+      integer(4),device              :: inumaccept
       !integer(4)              :: ispartmove = 1
       !integer(4)              :: ichargechangemove = 2
       integer(4), allocatable :: arrevent(:,:,:)
@@ -81,17 +82,14 @@ module gpumodule
                write(*,*) "Positions"
                if (ierr /= cudaSuccess) write(*,*) "Sync kernel error: ", cudaGetErrorString(ierr)
                if (ierra /= cudaSuccess) write(*,*) "Async kernel err: ", cudaGetErrorString(ierra)
-               do i = 1, iloops
-                  ipart = i
                write(*,*) "before upper"
-               call CalculateUpperPart<<<iblock2,128>>>(E_g,lhsoverlap,ipart,iloops_d)
+               call CalculateUpperPart<<<iblock2,128>>>(E_g,lhsoverlap)
                ierr = cudaGetLastError()
                ierra = cudaDeviceSynchronize()
                write(*,*) "upper"
                if (ierr /= cudaSuccess) write(*,*) "Sync kernel error: ", cudaGetErrorString(ierr)
                if (ierra /= cudaSuccess) write(*,*) "Async kernel err: ", cudaGetErrorString(ierra)
                write(*,*) "UpperPart", i
-               end do
                write(*,*) "start second loop"
                do j = 1, iloops
                   ipart = j
@@ -174,6 +172,8 @@ module gpumodule
             allocate(state(ceiling(real(np)/blocksize_h)))
             state = .false.
          end if
+
+         inumaccept = 0
 
                iblock1 = np / 128
                if (np < 128) iblock1 = 1
@@ -300,7 +300,7 @@ module gpumodule
       !!  internal parameters:
       !!                      id: global index of thread and index of particle in global list
       !!  global parameters:
-      attributes(global) subroutine CalculateUpperPart(E_g,lhsoverlap,ipart,nloop)
+      attributes(global) subroutine CalculateUpperPart(E_g,lhsoverlap)
 
          !use cooperative_groups
          use precision_m
@@ -333,17 +333,17 @@ module gpumodule
          real(fp_kind), intent(inout)   :: E_g(*)
          integer(4), shared :: npt_s
          integer(4) :: id, id_int, i, j
-         integer(4), value :: ipart
+         !integer(4), value :: ipart
          !type(grid_group) :: gg
-         integer(4), shared :: iblock
-         integer(4), intent(in) :: nloop
+         !integer(4), shared :: iblock
+         !integer(4), intent(in) :: nloop
          logical, shared :: lchain_s
          real(fp_kind), shared :: bondk_s
          real(fp_kind), shared :: bondeq_s
          real(fp_kind), shared :: bondp_s
 
                !gg = this_grid()
-               id = ((blockIDx%x-1) * blocksize + threadIDx%x)+(np_d/nloop *(ipart-1))
+               id = ((blockIDx%x-1) * blocksize + threadIDx%x)
                id_int = threadIDx%x
                if (id <= np_d) then
                   rotmx(id_int) = rotm_d(1,id)
@@ -363,7 +363,7 @@ module gpumodule
                  if (id_int == 1) then
                     numblocks = np_d / blocksize
                   npt_s = npt_d
-                     iblock = numblocks / nloop * (ipart - 1)
+                     !iblock = numblocks / nloop * (ipart - 1)
                  end if
                  call syncthreads
                   if ( id_int <= npt_s) then
@@ -380,14 +380,14 @@ module gpumodule
                  call syncthreads
 
              !! calculate particles that are in other blocks
-               do j =blockIDx%x + iblock, (ceiling(numblocks) - 1)
+               do j =blockIDx%x, (ceiling(numblocks) - 1)
                   rojx(id_int) = ro_d(1,id_int+j*blocksize)
                   rojy(id_int) = ro_d(2,id_int+j*blocksize)
                   rojz(id_int) = ro_d(3,id_int+j*blocksize)
                   iptjp_s(id_int) = iptpn_d(id_int+j*blocksize)
                   call syncthreads
                   do i=1, blocksize
-                     if (j*blocksize <= np_d) then
+                     if (j*blocksize + i <= np_d) then
                      !new energy
                         dx(id_int) = rojx(i) - rotmx(id_int)
                         dy(id_int) = rojy(i) - rotmy(id_int)
@@ -439,7 +439,7 @@ module gpumodule
                   call syncthreads
                do i= 1, blocksize
                      !new energy
-                     if (id_int <= i) then
+                     if (id_int < i) then
                         if ((blockIDx%x-1)*blockDim%x + i <= np_d) then
                         dx(id_int) = rox(i) - rotmx(id_int)
                         dy(id_int) = roy(i) - rotmy(id_int)
@@ -541,7 +541,7 @@ module gpumodule
          !character(40), parameter :: txroutine ='Metropolis'
          real(fp_kind) :: fac_metro
          !real(8) :: Zero = 0.0d0, One = 1.0d0
-         !real(8) :: expmax = 87.0d0
+         real(8) :: expmax_d = 87.0d0
          real(8)  ::numblocks
          real(fp_kind),shared :: rox(128)
          real(fp_kind),shared :: roy(128)
@@ -576,6 +576,7 @@ module gpumodule
          real(fp_kind) :: bondeq_s
          real(fp_kind) :: bondp_s
          real(8) :: ubuf_aux
+         real(8) :: dured
 
 
                gg = this_grid()
@@ -619,24 +620,37 @@ module gpumodule
 
          do i = 1+(np_d/nloop*(ipart-1)), np_d/nloop*ipart  ! es muss np/iloops*ipart sein, 40960 ist auch falsch, es muss np/iloops sein
             if (id == i) then
-                  fac_metro = exp(-beta_d*E_s(id_int))
-                  if (fac_metro > One) then
-                     iaccept_d = imcaccept_d
-                  !else if (fac_metro > pmetro(id)) then
-                  else if (fac_metro > Random_dev(iseed_d)) then
-                     iaccept_d = imcaccept_d
-                  else
-                     iaccept_d = imcreject_d
-                  end if
+                  print *, "Energie: ", id, E_s(id_int)
+                  dured = beta_d*E_s(id_int)
                   if (lhsoverlap(id_int) == .true.) then
                       iaccept_d = imchsreject_d
+                  !else if (fac_metro > pmetro(id)) then
+                  else if (dured > expmax) then
+                     iaccept_d = imcreject_d
+                  else if (dured < -expmax) then
+                     iaccept_d = imcaccept_d
+                  else
+                     fac_metro = exp(-dured)
+                     if (fac_metro > One) then
+                        iaccept_d = imcaccept_d
+                     else if (fac_metro > Random_dev2(iseed2_d)) then
+                        iaccept_d = imcaccept_d
+                     else
+                        iaccept_d = imcreject_d
+                     end if
                   end if
+                  !if (lhsoverlap(id_int) == .true.) then
+                  !    iaccept_d = imchsreject_d
+                  !end if
                   if (iaccept_d == 1) then
                         ro_d(1,id) = rotmx(id_int)
                         ro_d(2,id) = rotmy(id_int)
                         ro_d(3,id) = rotmz(id_int)
                         utot_d = utot_d + E_s(id_int)
+                        inumaccept = inumaccept + 1
                   end if
+                  print *, "inumaccept: ", inumaccept
+                  print *, "utot_d: ", utot_d
                   !call countMCsteps(i,iaccept_d,imovetype_d)
                   !countsteps = countsteps + 1
             end if
@@ -702,7 +716,7 @@ module gpumodule
                      !          (sig_s(iptip_s(id_int),iptpn_d(i))/rdist(id_int))**6)
                      rdist = sqrt(rdist)
                      E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
-                     print *, id, i, E_s(id_int)
+                     !print *, id, i, E_s(id_int)
                     ! if ( rdist > rcut2_d) then
                     !    ibuf = iubuflow_d(iptpt_d(iptip_s,iptpn_d(i)))
                     ! else
