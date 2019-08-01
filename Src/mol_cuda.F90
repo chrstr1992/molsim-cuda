@@ -203,7 +203,7 @@ subroutine TransferConstantParams
    end if
 
         lcuda = .true.
-        lseq = .true.
+        lseq = .false.
 
         ro_d = ro
         sizeofblocks_d = 512
@@ -214,7 +214,8 @@ subroutine TransferConstantParams
         beta_d = beta
         do ipt =1, npt
            do jpt = 1, npt
-              rsumrad_h(ipt,jpt) = (radat(ipt) + radat(jpt))**2
+              rsumrad_h(ipt,jpt) = radat(ipt) + radat(jpt)
+              rsumrad_h(ipt,jpt) = rsumrad_h(ipt,jpt)**2
            end do
         end do
         rsumrad = rsumrad_h
