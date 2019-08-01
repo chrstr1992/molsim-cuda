@@ -304,6 +304,7 @@ module gpumodule
 
          !use cooperative_groups
          use precision_m
+         !use mol_cuda
          implicit none
          real(fp_kind), shared  ::numblocks
          real(fp_kind),shared :: rox(128)
@@ -329,7 +330,6 @@ module gpumodule
          real(fp_kind)   :: dz
          real(fp_kind), shared   :: rsumrad_s(16,16)
          integer(4) :: ibuf
-         integer(4), shared :: iptpt(128)
          logical, intent(inout)   :: lhsoverlap(np_d)
          real(fp_kind), intent(inout)   :: E_g(*)
          integer(4), shared :: npt_s
@@ -342,6 +342,7 @@ module gpumodule
          real(fp_kind), shared :: bondk_s
          real(fp_kind), shared :: bondeq_s
          real(fp_kind), shared :: bondp_s
+         real(fp_kind) :: usum
 
                !gg = this_grid()
                id = ((blockIDx%x-1) * blocksize + threadIDx%x)
@@ -397,9 +398,31 @@ module gpumodule
                         call PBCr2_cuda(dx,dy,dz,rdist)
                         if (rdist < rsumrad_s(iptip_s,iptjp_s(i))) then
                            lhsoverlap(id) = .true.
+                             !do nothing
                         end if
-                              rdist = sqrt(rdist)
-                              E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
+                        call calcUTabplus(id,j*blocksize + i,rdist,E_s(id_int))
+
+                              !rdist = sqrt(rdist)
+                              !E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
+                        !else
+                           !if ( rdist > rcut2_d) then
+                             !do nothing
+                           !else
+                              !call calcUTab(id,i + (blockIDx%x-1)*blockDim%x)
+                             !ibuf = iubuflow_d(iptpt_d(iptip_s,iptjp_s(i)))
+                             !ibuf = 1
+                              !do
+                            !     if (rdist < ubuf_d(ibuf)) ibuf = ibuf+12
+                            !     if (rdist >= ubuf_d(ibuf)) exit
+                            !  end do
+                            !     d = rdist - ubuf_d(ibuf)
+                            !  E_s(id_int) = E_s(id_int) + (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                            !        d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
+                           !end if
+                        !end if
+                        !if (rdist < rsumrad_s(iptip_s,iptjp_s(i))) then
+                        !   lhsoverlap(id) = .true.
+                        !end if
                         !E_s(id_int) = E_s(id_int) + fac(iptip_s(id_int),iptjp_s(i))/rdist(id_int) + 4*eps_s(iptip_s(id_int),iptjp_s(i))*&
                           ! ((sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**12 - &
                           ! (sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**6)
@@ -431,13 +454,26 @@ module gpumodule
                         dz = rojz(i) - roz(id_int)
                         call PBCr2_cuda(dx,dy,dz,rdist)
                         !E_s(id_int) = E_s(id_int) - fac(iptip_s(id_int),iptjp_s(i))/rdist(id_int) - 4*eps_s(iptip_s(id_int),iptjp_s(i))*&
+                           !if ( rdist > rcut2_d) then
+                            !do nothing
+                           !else
+                           !  ibuf = iubuflow_d(iptpt_d(iptip_s,iptjp_s(i)))
+                           !   do
+                           !      if (rdist < ubuf_d(ibuf)) ibuf = ibuf+12
+                           !      if (rdist >= ubuf_d(ibuf)) exit
+                           !   end do
+                           !      d = rdist - ubuf_d(ibuf)
+                           !   E_s(id_int) = E_s(id_int) - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                           !         d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
+                           !end if
                         !   ((sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**12 - &
                         !   (sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**6)
                         !E_s(id_int) = E_s(id_int) - 4*eps_s(iptip_s(id_int),iptjp_s(i))*&
                         !   ((sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**12 - &
                         !   (sig_s(iptip_s(id_int),iptjp_s(i))/rdist(id_int))**6)
-                        rdist = sqrt(rdist)
-                        E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
+                        call calcUTabminus(id,j*blocksize + i,rdist,E_s(id_int))
+                        !rdist = sqrt(rdist)
+                        !E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
                         !do
                         !   if (rdist(id_int) >= ubuf_d(ibuf)) exit
                         !   ibuf = ibuf+12
@@ -459,17 +495,29 @@ module gpumodule
                         dy = roy(i) - rotmy(id_int)
                         dz = roz(i) - rotmz(id_int)
                         call PBCr2_cuda(dx,dy,dz,rdist)
-                        if (rdist < rsumrad_s(iptip_s,iptjp_s(i))) then
+                        if (rdist < rsumrad_s(iptip_s,iptpn_d(i+(blockIDx%x-1)*blockDim%x))) then
                            lhsoverlap(id) = .true.
+                        else
+                           call calcUTabplus(id,i+(blockIDx%x-1)*blockDim%x,rdist,E_s(id_int))
                         end if
-                        !E_s(id_int) = E_s(id_int) + fac(iptip_s(id_int),iptip_s(i))/rdist(id_int) + 4*eps_s(iptip_s(id_int),iptip_s(i))*&
-                        !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
-                        !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
-                        !E_s(id_int) = E_s(id_int) + 4*eps_s(iptip_s(id_int),iptip_s(i))*&
-                        !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
-                        !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
-                        rdist = sqrt(rdist)
-                        E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
+                        !rdist = sqrt(rdist)
+                        !E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
+                        !else
+                           !if ( rdist > rcut2_d) then
+
+                             !do nothing
+                           !else
+                           !     ibuf = iubuflow_d(iptpt_d(iptip_s,iptpn_d(i+(blockIDx%x-1)*blockDim%x)))
+                                !ibuf = 1
+                           !      do
+                           !         if (rdist >= ubuf_d(ibuf)) exit
+                           !         ibuf = ibuf+12
+                           !      end do
+                           !         d = rdist - ubuf_d(ibuf)
+                           !      E_s(id_int) = E_s(id_int) + (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                           !            d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
+                           !end if
+                        !end if
                         !do
                         !   if (rdist(id_int) >= ubuf_d(ibuf)) exit
                         !   ibuf = ibuf+12
@@ -482,26 +530,23 @@ module gpumodule
                         dy = roy(i) - roy(id_int)
                         dz = roz(i) - roz(id_int)
                         call PBCr2_cuda(dx,dy,dz,rdist)
+                        call calcUTabminus(id,i+(blockIDx%x-1)*blockDim%x,rdist,E_s(id_int))
                         !E_s(id_int) = E_s(id_int) - fac(iptip_s(id_int),iptip_s(i))/rdist(id_int) - 4*eps_s(iptip_s(id_int),iptip_s(i))*&
                         !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
                         !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
                         !E_s(id_int) = E_s(id_int) - 4*eps_s(iptip_s(id_int),iptip_s(i))*&
                         !   ((sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**12 - &
                         !   (sig_s(iptip_s(id_int),iptip_s(i))/rdist(id_int))**6)
-                        print *, id, i, rdist
-                        rdist = sqrt(rdist)
-                        !print *, "tm: ", id, rotmx(id_int), rotmy(id_int), rotmz(id_int)
-                        !print *, "ol ", i, ro_d(1,i), ro_d(2,i), ro_d(3,i)
-                        !print *, id, i, rdist(id_int)
-                        E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
-                        !do
-                        !   if (rdist(id_int) >= ubuf_d(ibuf)) exit
-                        !   ibuf = ibuf+12
-                        !end do
-                        !   d = rdist(id_int) - ubuf_d(ibuf)
-                        !E_s(id_int) = E_s(id_int) - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
-                        !      d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
-                     end if
+                        !rdist = sqrt(rdist)
+                        !E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
+                           !do
+                           !   if (rdist(id_int) >= ubuf_d(ibuf)) exit
+                           !   ibuf = ibuf+12
+                           !end do
+                           !   d = rdist(id_int) - ubuf_d(ibuf)
+                           !E_s(id_int) = E_s(id_int) - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                           !      d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
+                        end if
                   end if
                end do
 
@@ -606,7 +651,6 @@ module gpumodule
                   iptip_s = iptpn_d(id)
                   E_s(id_int) = E_g(id)
                   rdist = 0.0
-                  lhsoverlap(id) = .false.
                  ! ipcharge_s(id_int) = ipcharge(id)
                  if (id_int == 1) then
                     numblocks = np_d / blocksize
@@ -636,29 +680,31 @@ module gpumodule
                   if (lhsoverlap(id) == .true.) then
                       iaccept_d = imchsreject_d
                   !else if (fac_metro > pmetro(id)) then
-                  else if (dured > expmax) then
-                     iaccept_d = imcreject_d
-                  else if (dured < -expmax) then
-                     iaccept_d = imcaccept_d
                   else
-                     fac_metro = exp(-dured)
-                     if (fac_metro > One) then
-                        iaccept_d = imcaccept_d
-                     else if (fac_metro > Random_dev2(iseed2_d)) then
+                     if (dured > expmax) then
+                        iaccept_d = imcreject_d
+                     else if (dured < -expmax) then
                         iaccept_d = imcaccept_d
                      else
-                        iaccept_d = imcreject_d
+                        fac_metro = exp(-dured)
+                        if (fac_metro > One) then
+                           iaccept_d = imcaccept_d
+                        else if (fac_metro > Random_dev2(iseed2_d)) then
+                           iaccept_d = imcaccept_d
+                        else
+                           iaccept_d = imcreject_d
+                        end if
                      end if
-                  end if
-                  !if (lhsoverlap(id_int) == .true.) then
-                  !    iaccept_d = imchsreject_d
-                  !end if
-                  if (iaccept_d == 1) then
-                        ro_d(1,id) = rotmx(id_int)
-                        ro_d(2,id) = rotmy(id_int)
-                        ro_d(3,id) = rotmz(id_int)
-                        utot_d = utot_d + E_s(id_int)
-                        inumaccept = inumaccept + 1
+                     !if (lhsoverlap(id_int) == .true.) then
+                     !    iaccept_d = imchsreject_d
+                     !end if
+                     if (iaccept_d == 1) then
+                           ro_d(1,id) = rotmx(id_int)
+                           ro_d(2,id) = rotmy(id_int)
+                           ro_d(3,id) = rotmz(id_int)
+                           utot_d = utot_d + E_s(id_int)
+                           inumaccept = inumaccept + 1
+                     end if
                   end if
                   !print *, "inumaccept: ", inumaccept
                   !print *, "utot_d: ", utot_d
@@ -675,23 +721,22 @@ module gpumodule
                      if (rdist < rsumrad_s(iptip_s,iptpn_d(i))) then
                         lhsoverlap(id) = .true.
                      end if
+                     call calcUTabplus(id,i,rdist,E_s(id_int))
                      !E_s(id_int) = E_s(id_int) + fac(iptip_s(id_int),iptip(i))/rdist(id_int) + 4*eps_s(iptip_s(id_int),iptip(i))*&
                      !          ((sig_s(iptip_s(id_int),iptip(i))/rdist(id_int))**12 - &
                      !          (sig_s(iptip_s(id_int),iptip(i))/rdist(id_int))**6)
                      !E_s(id_int) = E_s(id_int) + 4*eps_s(iptip_s(id_int),iptpn_d(i))*&
                      !          ((sig_s(iptip_s(id_int),iptpn_d(i))/rdist(id_int))**12 - &
                      !          (sig_s(iptip_s(id_int),iptpn_d(i))/rdist(id_int))**6)
-                     rdist = sqrt(rdist)
+                     !rdist = sqrt(rdist)
                   !   print *, id, rotmx(id_int), rotmy(id_int), rotmz(id_int)
                   !   print *, i, ro_d(1,i), ro_d(2,i), ro_d(3,i)
                   !   print *, id, i, rdist
-                     E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
+                     !E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
                      !else if (rdist > rcut2_d) then
                         !nothing
                      !else
                      !   ibuf = iubuflow_d(iptpt_d(iptip_s,iptpn_d(i)))
-                        !ibuf = 1
-                        !print *, ibuf
                      !   do
                      !      if (rdist >= ubuf_d(ibuf)) exit
                      !      ibuf = ibuf+12
@@ -705,26 +750,28 @@ module gpumodule
                      dy = ro_d(2,i) - roy(id_int)
                      dz = ro_d(3,i) - roz(id_int)
                      call PBCr2_cuda(dx,dy,dz,rdist)
+                     call calcUTabminus(id,i,rdist,E_s(id_int))
                      !E_s(id_int) = E_s(id_int) - fac(iptip_s(id_int),iptip(i))/rdist(id_int) - 4*eps_s(iptip_s(id_int),iptip(i))*&
                      !          ((sig_s(iptip_s(id_int),iptip(i))/rdist(id_int))**12 - &
                      !          (sig_s(iptip_s(id_int),iptip(i))/rdist(id_int))**6)
                      !E_s(id_int) = E_s(id_int) - 4*eps_s(iptip_s(id_int),iptpn_d(i))*&
                      !          ((sig_s(iptip_s(id_int),iptpn_d(i))/rdist(id_int))**12 - &
                      !          (sig_s(iptip_s(id_int),iptpn_d(i))/rdist(id_int))**6)
-                     rdist = sqrt(rdist)
-                     E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
+                     !rdist = sqrt(rdist)
+                     !E_s(id_int) = E_s(id_int) - 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
                      !print *, id, i, E_s(id_int)
-                    ! if ( rdist > rcut2_d) then
+                    !if ( rdist > rcut2_d) then
+                       !do nothing
+                    !else
                     !    ibuf = iubuflow_d(iptpt_d(iptip_s,iptpn_d(i)))
-                    ! else
                     !    do
                     !       if (rdist >= ubuf_d(ibuf)) exit
-                     !      ibuf = ibuf+12
-                     !   end do
-                     !      d = rdist - ubuf_d(ibuf)
-                     !   E_s(id_int) = E_s(id_int) - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
-                     !         d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
-                     !end if
+                    !       ibuf = ibuf+12
+                    !    end do
+                    !       d = rdist - ubuf_d(ibuf)
+                    !    E_s(id_int) = E_s(id_int) - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                    !          d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
+                    ! end if
             end if
 
                if (lchain_s) then
@@ -989,5 +1036,55 @@ module gpumodule
                E_g(id) = E_s(id_int)
          end do
       end subroutine CalcLowerPart2
+
+      attributes(device) subroutine calcUTabminus(id,i,rdist,E)
+
+      implicit none
+      integer(4), intent(in) :: id
+      integer(4), intent(in) :: i
+      real(fp_kind), intent(inout) :: E
+      real(fp_kind), intent(in) :: rdist
+      integer(4) :: ibuf
+      real(fp_kind) :: d
+
+        ibuf = iubuflow_d(iptpt_d(iptpn_d(id),iptpn_d(i)))
+        !ibuf = 1
+         do
+            if (rdist >= ubuf_d(ibuf)) exit
+            ibuf = ibuf+12
+         end do
+            d = rdist - ubuf_d(ibuf)
+         E = E - (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+               d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
+
+
+
+
+      end subroutine calcUTabminus
+
+      attributes(device) subroutine calcUTabplus(id,i,rdist,E)
+
+      implicit none
+      integer(4), intent(in) :: id
+      integer(4), intent(in) :: i
+      real(fp_kind), intent(inout) :: E
+      real(fp_kind), intent(in) :: rdist
+      integer(4) :: ibuf
+      real(fp_kind) :: d
+
+        ibuf = iubuflow_d(iptpt_d(iptpn_d(id),iptpn_d(i)))
+        !ibuf = 1
+         do
+            if (rdist >= ubuf_d(ibuf)) exit
+            ibuf = ibuf+12
+         end do
+            d = rdist - ubuf_d(ibuf)
+         E = E + (ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+               d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6))))))
+
+
+
+
+      end subroutine calcUTabplus
 
 end module gpumodule

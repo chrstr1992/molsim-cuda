@@ -203,7 +203,7 @@ subroutine TransferConstantParams
    end if
 
         lcuda = .true.
-        lseq = .false.
+        lseq = .true.
 
         ro_d = ro
         sizeofblocks_d = 512
