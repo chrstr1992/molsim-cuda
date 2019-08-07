@@ -280,6 +280,7 @@ end module EnergyModule
 subroutine UTotal(iStage)
 
    use EnergyModule
+   use mol_cuda
    implicit none
 
    integer(4), intent(in) :: iStage
@@ -440,6 +441,109 @@ end subroutine UTotal
 !! **UTwoBodyA**
 !! *calculate two-body potential energy; only monoatomic particles*
 !************************************************************************
+subroutine UTwoBodyAGPU
+
+   use EnergyModule
+   implicit none
+
+   character(40), parameter :: txroutine ='UTwoBodyA'
+   integer(4) :: ip, iploc, ipt, jp, jploc, jpt, iptjpt, ibuf, Getnpmyid
+   real(8)    :: dx, dy, dz, r2, d, usum, fsum, virtwob
+
+   if (.not.lmonoatom) call Stop(txroutine, '.not.lmonoatom', uout)
+
+   if (ltime) call CpuAdd('start', txroutine, 2, uout)
+
+   u%twob(0:nptpt) = Zero
+   virtwob         = Zero
+
+   do ip = 1, np
+      !ip = ipnploc(iploc)
+      ipt = iptpn(ip)
+      do jp = 2, np
+         if (lmc) then
+            if (jp < ip) cycle
+         end if
+         jpt = iptpn(jp)
+         iptjpt = iptpt(ipt,jpt)
+         dx = ro(1,ip)-ro(1,jp)
+         dy = ro(2,ip)-ro(2,jp)
+         dz = ro(3,ip)-ro(3,jp)
+         call PBCr2(dx,dy,dz,r2)
+         if (r2 > rcut2) cycle
+         if (r2 < r2atat(iptjpt)) then
+            usum = 1d10                ! emulate hs overlap
+         else if (r2 < r2umin(iptjpt)) then
+            call StopUTwoBodyA
+         else
+            ibuf = iubuflow(iptjpt)
+            do
+               if (r2 >= ubuf(ibuf)) exit
+               ibuf = ibuf+12
+               if (ibuf > nbuf) call StopIbuf('txptpt',iptjpt)
+            end do
+            d = r2-ubuf(ibuf)
+            usum = ubuf(ibuf+1)+d*(ubuf(ibuf+2)+d*(ubuf(ibuf+3)+ &
+                   d*(ubuf(ibuf+4)+d*(ubuf(ibuf+5)+d*ubuf(ibuf+6)))))
+            fsum = ubuf(ibuf+7)+d*(ubuf(ibuf+8)+d*(ubuf(ibuf+9)+ &
+                   d*(ubuf(ibuf+10)+d*ubuf(ibuf+11))))
+         end if
+
+         u%twob(iptjpt) = u%twob(iptjpt) + usum
+         force(1,ip) = force(1,ip) + (fsum * dx)
+         force(2,ip) = force(2,ip) + (fsum * dy)
+         force(3,ip) = force(3,ip) + (fsum * dz)
+         force(1,jp) = force(1,jp) - (fsum * dx)
+         force(2,jp) = force(2,jp) - (fsum * dy)
+         force(3,jp) = force(3,jp) - (fsum * dz)
+         virtwob     = virtwob     - (fsum * r2)
+
+      end do
+
+   end do
+
+   u%twob(0) = sum(u%twob(1:nptpt))
+
+   u%tot     = u%tot     + u%twob(0)
+   virial    = virial    + virtwob
+   do iploc = 1, nptpt
+      print *, "utwob: ", iploc, u%twob(iploc)
+   end do
+   print *, "virial: ", virial
+
+   if (ltime) call CpuAdd('stop', txroutine, 2, uout)
+
+contains
+
+!........................................................................
+
+subroutine StopIbuf(txstring,i)
+   character(*), intent(in) :: txstring
+   integer(4),   intent(in) :: i
+   write(uout,*)
+   write(uout,'(a,i5)') txstring, i
+   call Stop(txroutine, 'ibuf > nbuf', uout)
+end subroutine StopIbuf
+
+subroutine StopUTwoBodyA
+   character(40), parameter :: txroutine ='StopUTwoBodyA'
+   write(uout,'(a,i5)')  'ip', ip
+   write(uout,'(a,i5)')  'jp', jp
+   write(uout,'(a,3e15.5)') 'ro(ip)        = ', ro(1:3,ip)
+   write(uout,'(a,3e15.5)') 'ro(jp)        = ', ro(1:3,jp)
+   write(uout,'(a,3e15.5)') 'boxlen2       = ', boxlen2
+   write(uout,'(a,3e15.5)') 'dpbc          = ', dpbc
+   write(uout,'(a,i15)')    'uout           = ', uout
+   write(uout,'(a,i15)')    'myid           = ', myid
+   write(uout,'(a,i15)')    'iptjpt         = ', iptjpt
+   write(uout,'(a,e15.5)')  'r2             = ', r2
+   write(uout,'(a,e15.5)')  'r2umin(iptjpt) = ', r2umin(iptjpt)
+   call Stop(txroutine, 'r2 < r2umin(iptjpt)', uout)
+end subroutine StopUTwoBodyA
+
+!........................................................................
+
+end subroutine UTwoBodyAGPU
 
 
 subroutine UTwoBodyA

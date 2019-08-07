@@ -4,7 +4,7 @@ module mol_cuda
     use cudafor
     use precision_m
     implicit none
-   logical :: lcuda
+   logical :: lcuda = .true.
 
    real(fp_kind),    constant :: ThreeHalf_d = 1.5
    real(fp_kind),    constant :: SqTwo_d       = sqrt(Two)
@@ -38,6 +38,10 @@ module mol_cuda
    real(fp_kind), device,allocatable :: utwob_d(:)
    real(fp_kind), device  :: utot_d
    real(fp_kind), device  :: virtwob_d
+
+!... potential
+   real(fp_kind), device, allocatable :: ucoff_d(:)
+   real(fp_kind), device :: scrlen_d
 
 !... in DuTotal
    logical, device      :: lhsoverlap_d
@@ -91,7 +95,7 @@ module mol_cuda
 subroutine AllocateDeviceParams
 
 
-        use NListModule
+        !use NListModule
         use Random_Module
         implicit none
 
@@ -105,7 +109,7 @@ subroutine AllocateDeviceParams
         allocate(r2umin_d(natat))
         allocate(r2atat_d(natat))
         allocate(iubuflow_d(natat))
-        allocate(nneighpn_d(np_alloc))
+        !allocate(nneighpn_d(np_alloc))
         write(*,*) "1"
         allocate(iptpn_d(np_alloc))
         allocate(ubuf_d(nbuf))
@@ -116,6 +120,7 @@ subroutine AllocateDeviceParams
         allocate(utwobnew_d(0:nptpt))
         allocate(utwobold_d(0:nptpt))
         allocate(dutwobold(0:nptpt))
+        allocate(ucoff_d(natat))
         write(*,*) "2"
         write(*,*) "1"
         allocate(seedsnp(np_alloc))
@@ -145,6 +150,7 @@ subroutine TransferConstantParams
 
         use Molmodule
         use Random_Module
+        use PotentialModule
         implicit none
         
         integer(4) :: istat, ipt, jpt
@@ -178,6 +184,7 @@ subroutine TransferConstantParams
         lbcrd_d = lbcrd
         lbcto_d = lbcto
         rcut2_d = rcut2
+        scrlen_d = scrlen
         nptpt_d = nptpt
         r2atat_d = r2atat
         r2umin_d = r2umin
@@ -203,7 +210,7 @@ subroutine TransferConstantParams
    end if
 
         lcuda = .true.
-        lseq = .true.
+        lseq = .false.
 
         ro_d = ro
         sizeofblocks_d = 512
@@ -218,6 +225,10 @@ subroutine TransferConstantParams
               rsumrad_h(ipt,jpt) = rsumrad_h(ipt,jpt)**2
            end do
         end do
+        do ipt = 1, natat
+           ucoff_d(ipt) = ucoff(1,ipt)
+           print *, "ucoff: ", ipt, ucoff(1,ipt)
+        end do
         rsumrad = rsumrad_h
    if(ltime) call CpuAdd('stop', 'transferconstant', 1, uout)
         ix_dev = ix
@@ -229,7 +240,7 @@ end subroutine TransferConstantParams
 
 subroutine TransferVarParamsToDevice
 
-        use NListModule
+        !use NListModule
         implicit none
 
         integer(4) :: istat
@@ -242,7 +253,7 @@ subroutine TransferVarParamsToDevice
         virtwob_d = 0.0
         virial_d = virial
         !istat = cudaMemcpy(nneighpn_d,nneighpn,np)
-        nneighpn_d = nneighpn
+        !nneighpn_d = nneighpn
         !jpnlist_d = jpnlist
         utot_d = u%tot
         virtwob_d = 0.0
@@ -270,7 +281,7 @@ end subroutine TransferVarParamsToHost
 
 subroutine TransferDUTotalVarToDevice
 
-        use NListModule
+        !use NListModule
         !use Energymodule
         use Molmodule
         implicit none

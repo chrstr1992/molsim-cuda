@@ -124,6 +124,7 @@ end module NListModule
 subroutine NListDriver(iStage)
 
    use NListModule
+   use mol_cuda
    implicit none
 
    integer(4), intent(in) :: iStage
@@ -131,7 +132,6 @@ subroutine NListDriver(iStage)
    character(40), parameter :: txroutine ='NListDriver'
 
    if (ltrace) call WriteTrace(1, txroutine, iStage)
-
    select case (iStage)
    case (iReadInput)
 
@@ -186,6 +186,7 @@ end subroutine NListDriver
 subroutine IONList(iStage)
 
    use NListModule
+   use mol_cuda
    implicit none
 
    integer(4), intent(in) :: iStage
@@ -272,17 +273,13 @@ subroutine IONList(iStage)
       if (lllist .and. (.not.lbcbox)) call Stop(txroutine, 'lllist .and. non-cubic BCs', uout)
 
 ! ... allocate memory
-
-      write(*,*) "allocate nb"
       if (.not.allocated(ipnploc)) then
-         allocate(ipnploc(npartperproc), nneighpn(npartperproc), jpnlist(maxnneigh,npartperproc), stat = ierr)
+         allocate(ipnploc(npartperproc), nneighpn(npartperproc), stat = ierr)
          ipnploc = 0
-      write(*,*) "allocate nb successful"
          nneighpn = 0
-      write(*,*) "allocate nb successful"
       write(*,*) "maxnneigh: ", maxnneigh
+         allocate(jpnlist(maxnneigh,npartperproc))
          jpnlist = 0
-      write(*,*) "allocate nb successful"
          if(ierr /= 0) then
             write(*,'(a,i10)') 'maxnneigh   = ', maxnneigh
             call WriteIOStat(txroutine, 'memory allocation failed', ierr, 2, 6)

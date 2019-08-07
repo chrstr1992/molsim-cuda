@@ -1088,8 +1088,8 @@ module MolModule
    logical              :: lintsite
    real(8), allocatable :: rasite(:,:,:)   ! interaction-site coordinates in molecular frame
    real(8), allocatable :: ra(:,:,:)       ! atom coordinates in molecular frame
-   real(8), allocatable, pinned :: ro(:,:)         ! particle position
-   real(8), allocatable, pinned :: rotm(:,:)       ! particle position, for trial configuration
+   real(8), allocatable :: ro(:,:)         ! particle position
+   real(8), allocatable :: rotm(:,:)       ! particle position, for trial configuration
    real(8), allocatable :: drotm(:,:)      ! suggested particle move
    real(8), allocatable :: ori(:,:,:)      ! particle orientation
    real(8), allocatable :: oritm(:,:,:)    ! particle orientation, for trial configuration

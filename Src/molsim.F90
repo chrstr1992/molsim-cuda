@@ -32,6 +32,7 @@ program MolsimDriver
    use MolModule
    use mol_cuda
    use gpumodule
+   use MolModule
    implicit none
 
    character(40), parameter :: txroutine ='MolsimDriver'
@@ -83,6 +84,7 @@ program MolsimDriver
    write(*,*) "transfer successful"
 
    call MolsimDriverSub(iWriteInput)
+   write(*,*) "transfer successful2"
 
 ! ............... initiate simulation ................
 
@@ -91,6 +93,8 @@ program MolsimDriver
    call PotentialDriver(iBeforeSimulation)
    call MolsimDriverSub(iBeforeSimulation)
    call IOCnf('close')
+
+   utot_d = u%tot
 
 
 

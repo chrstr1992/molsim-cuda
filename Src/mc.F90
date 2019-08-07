@@ -1497,12 +1497,17 @@ subroutine MCPass(iStage)
    write(*,*) "after dtran"
 
 if (lseq == .true.) then
-   utot_d = u%tot
+   !utot_d = u%tot
    call MCPassAllGPU
    !u_aux = u_aux + u%tot
    !write(*,*) "UTotal: ", u%tot
    !write(*,*) "Uaux: ", u_aux
    u%tot = utot_d
+   !do ip =1 , np
+      !ro(1,ip) = ro_d(1,ip)
+      !ro(2,ip) = ro_d(2,ip)
+      !ro(3,ip) = ro_d(3,ip)
+   !end do
       ro = ro_d
       r = ro
 !end do

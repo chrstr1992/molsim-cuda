@@ -218,7 +218,7 @@ ifeq ($(ARCH), PGFORTRAN)
 
   COMP_SER = pgfortran
   LINK_SER = $(COMP_SER)
-  OPT_SER  = -O3 -Mcuda
+  OPT_SER  = -O0 -Mcuda
   ifeq ($(mode),double)
     OPT_SER += -Mpreprocess -DDOUBLE
   endif
@@ -443,7 +443,7 @@ precision_m.o:
 mixed.o:          mol.o
 mixed_par.o:      mol_par.o
 mol.o:            statistics.o mesh.o mollib.o
-mol_cuda.o:       mol.o nlist.o precision_m.o
+mol_cuda.o:       mol.o precision_m.o potential.o
 mol_par.o:        statistics_par.o mesh_par.o mollib_par.o
 molaux.o:         mol.o mollib.o
 molaux_par.o:     mol_par.o mollib_par.o
@@ -455,7 +455,7 @@ molsim.o:         mol.o statistics.o mollib.o mol_cuda.o gpu.o
 molsim_par.o:     mol_par.o statistics_par.o mollib_par.o
 moluser.o:        mol.o statistics.o potential.o mollib.o
 moluser_par.o:    mol_par.o potential_par.o statistics_par.o mollib_par.o
-nlist.o:          mol.o celllist.o
+nlist.o:          mol.o celllist.o mol_cuda.o
 nlist_par.o:      mol_par.o celllist_par.o
 parallel_par.o:   mol_par.o
 particle.o:       mol.o mollib.o

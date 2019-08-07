@@ -2759,8 +2759,8 @@ module Random_Module
          real(8) :: Random_h
          integer(k4b), parameter :: ia=16807,im=2147483647,iq=127773,ir=2836
          integer(k4b)   :: k
-         icounter = icounter + 1
-         write(*,*) "icounter: ", icounter
+         !icounter = icounter + 1
+         !write(*,*) "icounter: ", icounter
          if (idum <= 0 .or. iy < 0) then           !initialize.
             am=nearest(1.0,-1.0)/im
             iy=ior(ieor(888889999,abs(idum)),1)
@@ -2774,10 +2774,10 @@ module Random_Module
          iy=ia*(iy-k*iq)-ir*k
          if (iy < 0) iy=iy+im
          Random_h=am*ior(iand(im,ieor(ix,iy)),1)     !combine the two generators with masking to ensure nonzero value.
-         print *, "am ", am
-         print *, "ix ", ix
-         print *, "iy ", iy
-         print *, "Random ", Random_h
+        ! print *, "am ", am
+        ! print *, "ix ", ix
+        ! print *, "iy ", iy
+        ! print *, "Random ", Random_h
       end function Random_h
 
       attributes(device) function Random_dev(idum)
@@ -2786,8 +2786,8 @@ module Random_Module
          real(8) :: Random_dev
          integer(k4b), parameter :: ia=16807,im=2147483647,iq=127773,ir=2836
          integer(k4b)   :: k
-         icounter_d = icounter_d + 1
-         write(*,*) "icounter: ", icounter_d
+         !icounter_d = icounter_d + 1
+         !write(*,*) "icounter: ", icounter_d
          if (idum <= 0 .or. iy_dev < 0) then           !initialize.
             am_dev=nearest(1.0,-1.0)/im
             iy_dev=ior(ieor(888889999,abs(idum)),1)
@@ -2801,10 +2801,10 @@ module Random_Module
          iy_dev=ia*(iy_dev-k*iq)-ir*k
          if (iy_dev < 0) iy_dev=iy_dev+im
          Random_dev=am_dev*ior(iand(im,ieor(ix_dev,iy_dev)),1)     !combine the two generators with masking to ensure nonzero value.
-         print *, "am ", am_dev
-         print *, "ix ", ix_dev
-         print *, "iy ", iy_dev
-         print *, "Random ", Random_dev
+        ! print *, "am ", am_dev
+        ! print *, "ix ", ix_dev
+        ! print *, "iy ", iy_dev
+        ! print *, "Random ", Random_dev
       end function Random_dev
 
       attributes(device) function Random_dev2(idum)
@@ -2813,8 +2813,8 @@ module Random_Module
          real(8) :: Random_dev2
          integer(k4b), parameter :: ia=16807,im=2147483647,iq=127773,ir=2836
          integer(k4b)   :: k
-         icounter2_d = icounter2_d + 1
-         write(*,*) "icounter2: ", icounter2_d
+         !icounter2_d = icounter2_d + 1
+         !write(*,*) "icounter2: ", icounter2_d
          if (idum <= 0 .or. iy_dev2 < 0) then           !initialize.
             am_dev=nearest(1.0,-1.0)/im
             iy_dev2=ior(ieor(888889999,abs(idum)),1)
@@ -2828,10 +2828,10 @@ module Random_Module
          iy_dev2=ia*(iy_dev2-k*iq)-ir*k
          if (iy_dev2 < 0) iy_dev2=iy_dev2+im
          Random_dev2=am_dev*ior(iand(im,ieor(ix_dev2,iy_dev2)),1)     !combine the two generators with masking to ensure nonzero value.
-         print *, "am ", am_dev
-         print *, "ix ", ix_dev2
-         print *, "iy ", iy_dev2
-         print *, "Random ", Random_dev2
+        ! print *, "am ", am_dev
+        ! print *, "ix ", ix_dev2
+        ! print *, "iy ", iy_dev2
+        ! print *, "Random ", Random_dev2
       end function Random_dev2
 
       function Random_h2(idum)
@@ -2840,8 +2840,8 @@ module Random_Module
          real(8) :: Random_h2
          integer(k4b), parameter :: ia=16807,im=2147483647,iq=127773,ir=2836
          integer(k4b)   :: k
-         icounter2 = icounter2 + 1
-         write(*,*) "icounter2: ", icounter2
+         !icounter2 = icounter2 + 1
+         !write(*,*) "icounter2: ", icounter2
          if (idum <= 0 .or. iy2 < 0) then           !initialize.
             am=nearest(1.0,-1.0)/im
             iy2=ior(ieor(888889999,abs(idum)),1)
@@ -2855,10 +2855,10 @@ module Random_Module
          iy2=ia*(iy2-k*iq)-ir*k
          if (iy2 < 0) iy2=iy2+im
          Random_h2=am*ior(iand(im,ieor(ix2,iy2)),1)     !combine the two generators with masking to ensure nonzero value.
-         print *, "am ", am
-         print *, "ix ", ix2
-         print *, "iy ", iy2
-         print *, "Random ", Random_h2
+        ! print *, "am ", am
+        ! print *, "ix ", ix2
+        ! print *, "iy ", iy2
+        ! print *, "Random ", Random_h2
       end function Random_h2
 
 end module Random_Module
@@ -2871,8 +2871,8 @@ end module Random_Module
          real(8) :: Random
          integer(k4b), parameter :: ia=16807,im=2147483647,iq=127773,ir=2836
          integer(k4b)   :: k
-         icounter = icounter + 1
-         write(*,*) "icounter: ", icounter
+         !icounter = icounter + 1
+         !write(*,*) "icounter: ", icounter
          if (idum <= 0 .or. iy < 0) then           !initialize.
             am=nearest(1.0,-1.0)/im
             iy=ior(ieor(888889999,abs(idum)),1)
@@ -2886,10 +2886,10 @@ end module Random_Module
          iy=ia*(iy-k*iq)-ir*k
          if (iy < 0) iy=iy+im
          Random=am*ior(iand(im,ieor(ix,iy)),1)     !combine the two generators with masking to ensure nonzero value.
-         print *, "am ", am
-         print *, "ix ", ix
-         print *, "iy ", iy
-         print *, "Random ", Random
+         !print *, "am ", am
+         !print *, "ix ", ix
+         !print *, "iy ", iy
+         !print *, "Random ", Random
       end function Random
 !************************************************************************
 !*     Random                                                           *

@@ -301,6 +301,8 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
            du%twob(0) = sum(du%twob(1:nptpt))
         ! call TransferDUTotalVarToHost
         du%tot = du%tot + du%twob(0)                ! update
+        !!! debug
+         print *, "Energie: ", ipnptm(1), du%twob(0)
    end if
 
 
@@ -394,7 +396,7 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
                  d = r2-ubuf_d(ibuf)
                  usum1(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
                               d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
-
+                 if (ip == 1) print *, "new", jp, usum1(tidx_int)
             !print *, "ip: ",ip, jp,r2, usum(tidx_int)
                  !utwobnew_d(iptjpt) = utwobnew_d(iptjpt) + usum
                  !istat = atomicAdd(utwobnew_d(iptjpt),usum) 
@@ -435,15 +437,16 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
               usum2(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
                            d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
                         usum1(tidx_int) = usum1(tidx_int) - usum2(tidx_int)
+                 if (ip == 1) print *, "old", jp, usum2(tidx_int)
          !print *, "ip: ",ip, jp,r2, usum(tidx_int)
              ! istat = atomicAdd(utwobold_d(iptjpt),usum) 
         end if
      end if
      if (iploc == 1 .and. jp <= 4) then
         if (jp > 0) then
-         print *, "tm: ", ip, rotm_d(1,iploc), rotm_d(2,iploc), rotm_d(3,iploc)
-         print *, "old: ", jp, ro_d(1,jp), ro_d(2,jp), ro_d(3,jp)
-         print *, ip, jp, r2
+         !print *, "tm: ", ip, rotm_d(1,iploc), rotm_d(2,iploc), rotm_d(3,iploc)
+         !print *, "old: ", jp, ro_d(1,jp), ro_d(2,jp), ro_d(3,jp)
+         !print *, ip, jp, r2
         end if
      end if
 
