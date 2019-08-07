@@ -73,6 +73,12 @@ module mol_cuda
    integer(4), device, allocatable :: bondnn_d(:,:)
    logical, device :: lchain_d
    real(fp_kind), device, allocatable :: rsumrad(:,:)
+   real(fp_kind), device, allocatable :: clink_d_k(:)
+   real(fp_kind), device, allocatable :: clink_d_eq(:)
+   real(fp_kind), device, allocatable :: clink_d_p(:)
+   integer(4), device, allocatable :: bondcl_d(:,:)
+   integer(4), device, allocatable :: nbondcl_d(:)
+   logical, device :: lclink_d
    real(fp_kind), allocatable :: rsumrad_h(:,:)
    real(fp_kind), device, allocatable :: sig(:)
    real(fp_kind), device, allocatable :: eps(:)
@@ -128,6 +134,7 @@ subroutine AllocateDeviceParams
         allocate(seeds_d(np_alloc))
         write(*,*) "3"
         allocate(bondnn_d(2,np_alloc))
+        allocate(bondcl_d(4,np_alloc))
         write(*,*) "4"
         allocate(rsumrad(npt,npt))
         write(*,*) "5"
@@ -138,6 +145,10 @@ subroutine AllocateDeviceParams
         allocate(bond_d_k(npt))
         allocate(bond_d_eq(npt))
         allocate(bond_d_p(npt))
+        allocate(clink_d_k(npt))
+        allocate(clink_d_eq(npt))
+        allocate(clink_d_p(npt))
+        allocate(nbondcl_d(np_alloc))
         allocate(ix_d(np_alloc))
         allocate(iy_d(np_alloc))
         allocate(am_d(np_alloc))
@@ -209,6 +220,14 @@ subroutine TransferConstantParams
         bondnn_d = bondnn
    end if
 
+        lclink_d = lclink
+   if(lchain) then
+        clink_d_k = clink%k
+        clink_d_eq = clink%eq
+        clink_d_p = clink%p
+        bondcl_d = bondcl
+        nbondcl_d = nbondcl
+   end if
         lcuda = .true.
         lseq = .false.
 
