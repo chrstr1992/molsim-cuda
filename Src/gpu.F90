@@ -1,0 +1,131 @@
+module gpumodule
+
+   use cudafor
+   use mol_cuda
+      implicit none
+
+
+
+
+
+
+      contains
+
+attributes(global) subroutine DUTwoBodyEwaldRecStd_cuda
+   !character(40), parameter :: txroutine ='UEwaldRecStd'
+   integer(4) :: kn, nx, ny, nz, ia, ialoc, ikvec2
+   real(8)    :: term, termnew, termold
+
+!   if (ltime) call CpuAdd('start', txroutine, 3, uout)
+
+! ... calculate eikxtm, eikytm, and eikztm for moving particles
+
+   call EwaldSetArrayTM_cuda
+
+   !kn = kvecoffmyid_d
+   kn = 0
+   ikvec2 = 0
+   do nz = 0, ncut_d
+      do ny = 0, ncut_d
+         if (ny**2+nz**2 > ncut2_d) cycle
+         ikvec2 = ikvec2+1
+         !print *, "kvec1: ", kvecmyid_d(1)
+         !print *, "kvec2: ", kvecmyid_d(2)
+         !if (ikvec2 < kvecmyid_d(1) .or. ikvec2 > kvecmyid_d(2)) cycle  ! parallelize over k-vectors
+         do ialoc = 1, natm_d
+            ia = ianatm_d(ialoc)
+            eikyzm_d(ia)      = conjg(eiky_d(ia,ny))     *eikz_d(ia,nz)
+            eikyzp_d(ia)      =       eiky_d(ia,ny)      *eikz_d(ia,nz)
+            eikyzmtm_d(ialoc) = conjg(eikytm_d(ialoc,ny))*eikztm_d(ialoc,nz)
+            eikyzptm_d(ialoc) =       eikytm_d(ialoc,ny) *eikztm_d(ialoc,nz)
+            print *, "1: ", eiky_d(ia,ny)
+            print *, "2: ", eikz_d(ia,nz)
+            print *, "3: ", eikyzmtm_d(ialoc)
+            print *, "4: ", eikyzptm_d(ialoc)
+         end do
+
+         do nx = 0, ncut_d
+            if ((lbcrd_d .or. lbcto_d) .and. (mod((nx+ny+nz),2) /= 0)) cycle      ! only even nx+ny+nz for RD and TO bc
+            if (nx**2+ny**2+nz**2 > ncut2_d) cycle
+            if (nx == 0 .and. ny == 0 .and. nz == 0) cycle
+            kn = kn + 1
+            sumeikrtm_d(kn,1) = sumeikr_d(kn,1)
+            sumeikrtm_d(kn,2) = sumeikr_d(kn,2)
+            sumeikrtm_d(kn,3) = sumeikr_d(kn,3)
+            sumeikrtm_d(kn,4) = sumeikr_d(kn,4)
+            do ialoc = 1, natm_d
+               ia = ianatm_d(ialoc)
+               sumeikrtm_d(kn,1) = sumeikrtm_d(kn,1)+az_d(ia)*  &
+                  (conjg(eikxtm_d(ialoc,nx))*eikyzmtm_d(ialoc) - conjg(eikx_d(ia,nx))*eikyzm_d(ia))
+               sumeikrtm_d(kn,2) = sumeikrtm_d(kn,2)+az_d(ia)*  &
+                  (conjg(eikxtm_d(ialoc,nx))*eikyzptm_d(ialoc) - conjg(eikx_d(ia,nx))*eikyzp_d(ia))
+               sumeikrtm_d(kn,3) = sumeikrtm_d(kn,3)+az_d(ia)*  &
+                        (eikxtm_d(ialoc,nx) *eikyzmtm_d(ialoc) -       eikx_d(ia,nx) *eikyzm_d(ia))
+               sumeikrtm_d(kn,4) = sumeikrtm_d(kn,4)+az_d(ia)*  &
+                        (eikxtm_d(ialoc,nx) *eikyzptm_d(ialoc) -       eikx_d(ia,nx) *eikyzp_d(ia))
+            end do
+
+            termnew = real(sumeikrtm_d(kn,1))**2 + aimag(sumeikrtm_d(kn,1))**2 + real(sumeikrtm_d(kn,2))**2 + aimag(sumeikrtm_d(kn,2))**2 &
+                    + real(sumeikrtm_d(kn,3))**2 + aimag(sumeikrtm_d(kn,3))**2 + real(sumeikrtm_d(kn,4))**2 + aimag(sumeikrtm_d(kn,4))**2
+            termold = real(sumeikr_d(kn,1))**2   + aimag(sumeikr_d(kn,1))**2   + real(sumeikr_d(kn,2))**2   + aimag(sumeikr_d(kn,2))**2 &
+                    + real(sumeikr_d(kn,3))**2   + aimag(sumeikr_d(kn,3))**2   + real(sumeikr_d(kn,4))**2   + aimag(sumeikr_d(kn,4))**2
+            term    = kfac_d(kn)*(termnew - termold)
+            durec_d   = durec_d + term
+
+         end do
+      end do
+   end do
+
+   !if (ltime) call CpuAdd('stop', txroutine, 3, uout)
+
+end subroutine DUTwoBodyEwaldRecStd_cuda
+
+
+attributes(device) subroutine EwaldSetArrayTM_cuda
+
+   use EnergyModule
+   use mol_cuda
+   implicit none
+
+   integer(4) :: ialoc, icut
+
+   do ialoc = 1, natm_d
+      eikxtm_d(ialoc,0) = cmplx(One_d,Zero_d)
+      eikytm_d(ialoc,0) = cmplx(One_d,Zero_d)
+      eikztm_d(ialoc,0) = cmplx(One_d,Zero_d)
+      eikxtm_d(ialoc,1) = cmplx(cos(TwoPiBoxi_d(1)*rtm_d(1,ialoc)),sin(TwoPiBoxi_d(1)*rtm_d(1,ialoc)))
+      eikytm_d(ialoc,1) = cmplx(cos(TwoPiBoxi_d(2)*rtm_d(2,ialoc)),sin(TwoPiBoxi_d(2)*rtm_d(2,ialoc)))
+      eikztm_d(ialoc,1) = cmplx(cos(TwoPiBoxi_d(3)*rtm_d(3,ialoc)),sin(TwoPiBoxi_d(3)*rtm_d(3,ialoc)))
+   end do
+   do icut = 2, ncut_d
+      do ialoc = 1, natm_d
+         eikxtm_d(ialoc,icut) = eikxtm_d(ialoc,icut-1)*eikxtm_d(ialoc,1)
+         eikytm_d(ialoc,icut) = eikytm_d(ialoc,icut-1)*eikytm_d(ialoc,1)
+         eikztm_d(ialoc,icut) = eikztm_d(ialoc,icut-1)*eikztm_d(ialoc,1)
+      end do
+   end do
+
+end subroutine EwaldSetArrayTM_cuda
+
+attributes(global) subroutine EwaldUpdateArray_cuda
+
+   use EnergyModule
+   implicit none
+
+   integer(4) :: ia, ialoc, icut
+
+   !if (txewaldrec == 'std') then
+      do icut = 0, ncut_d
+         do ialoc = 1, natm_d
+            ia = ianatm_d(ialoc)
+            eikx_d(ia,icut) = eikxtm_d(ialoc,icut)
+            eiky_d(ia,icut) = eikytm_d(ialoc,icut)
+            eikz_d(ia,icut) = eikztm_d(ialoc,icut)
+         end do
+      end do
+      sumeikr_d(1:nkvec_d,1:4) = sumeikrtm_d(1:nkvec_d,1:4)
+   !end if
+
+end subroutine EwaldUpdateArray_cuda
+
+end module gpumodule
