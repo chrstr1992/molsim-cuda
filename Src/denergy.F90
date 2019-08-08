@@ -436,7 +436,7 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
                            d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
                         usum1(tidx_int) = usum1(tidx_int) - usum2(tidx_int)
          !print *, "ip: ",ip, jp,r2, usum(tidx_int)
-             ! istat = atomicAdd(utwobold_d(iptjpt),usum) 
+             ! istat = atomicAdd(utwobold_d(iptjpt),usum)
         end if
      end if
 
@@ -444,7 +444,8 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
        call syncthreads
        if (tidx_int <= threadssum_d) then
           do i = 1, blockDim%x/threadssum_d
-             usum_aux1(tidx_int,iptjpt_arr(i)) = usum_aux1(tidx_int,iptjpt_arr(i)) + usum1(blockDim%x/threadssum_d*(tidx_int-1)+i)
+             usum_aux1(tidx_int,iptjpt_arr(threadssum_d*(i-1)+ tidx_int)) = &
+                usum_aux1(tidx_int,iptjpt_arr(threadssum_d*(i-1)+ tidx_int)) + usum1(blockDim%x/threadssum_d*(i-1)+tidx_int)
           end do
        end if
           call syncthreads
