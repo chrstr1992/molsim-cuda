@@ -229,7 +229,7 @@ subroutine TransferConstantParams
         nbondcl_d = nbondcl
    end if
         lcuda = .true.
-        lseq = .false.
+        lseq = .true.
 
         ro_d = ro
         sizeofblocks_d = 512

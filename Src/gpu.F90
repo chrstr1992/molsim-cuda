@@ -342,6 +342,10 @@ module gpumodule
          real(fp_kind), shared :: bondk_s
          real(fp_kind), shared :: bondeq_s
          real(fp_kind), shared :: bondp_s
+         logical :: lclink_s
+         real(fp_kind), shared :: clinkk_s
+         real(fp_kind), shared :: clinkeq_s
+         real(fp_kind), shared :: clinkp_s
          real(fp_kind) :: usum
 
                !gg = this_grid()
@@ -360,6 +364,7 @@ module gpumodule
                   rdist = 0.0
                   lhsoverlap(id) = .false.
                   lchain_s = lchain_d
+                  lclink_s = lclink_d
                  ! ipcharge_s(id_int) = ipcharge(id)
                  !if (id_int == 1) then
                     numblocks = np_d / blocksize
@@ -499,6 +504,32 @@ module gpumodule
                      do i= 1, 2
                         !ibond_s(i,id_int) = ibond_d(i,id)
                         if (id < bondnn_d(i,id)) then
+                           dx = ro_d(1, bondnn_d(i,id)) - rotmx(id_int)
+                           dy = ro_d(2, bondnn_d(i,id)) - rotmy(id_int)
+                           dz = ro_d(3, bondnn_d(i,id)) - rotmz(id_int)
+                           call PBCr2_cuda(dx,dy,dz,rdist)
+                           rdist = sqrt(rdist)
+                          ! print *, "upper: ", bond_d(i,id), id, rdist(id_int)
+                           E_s = E_s + bondk_s*(rdist - bondeq_s)**bondp_s
+
+                           dx = ro_d(1, bondnn_d(i,id)) - rox(id_int)
+                           dy = ro_d(2, bondnn_d(i,id)) - roy(id_int)
+                           dz = ro_d(3, bondnn_d(i,id)) - roz(id_int)
+                           call PBCr2_cuda(dx,dy,dz,rdist)
+                           rdist = sqrt(rdist)
+                           E_s = E_s - bondk_s*(rdist - bondeq_s)**bondp_s
+                        end if
+
+                     end do
+                  end if
+
+                  if (lchain_s) then
+                        clinkk_s = clink_d_k(1)
+                        clinkeq_s = clink_d_eq(1)
+                        clinkp_s = clink_d_p(1)
+                     do i= 1, 4
+                        !ibond_s(i,id_int) = ibond_d(i,id)
+                        if (id < bondcl_d(i,id)) then
                            dx = ro_d(1, bondnn_d(i,id)) - rotmx(id_int)
                            dy = ro_d(2, bondnn_d(i,id)) - rotmy(id_int)
                            dz = ro_d(3, bondnn_d(i,id)) - rotmz(id_int)
