@@ -5205,7 +5205,8 @@ subroutine MCUpdate
 
    use MCModule
    use CellListModule, only: UpdateCellIp
-   use mol_cuda, only: ro_d
+   use mol_cuda
+   use gpumodule
    implicit none
 
    integer(4) :: ip, iploc
@@ -5221,7 +5222,14 @@ subroutine MCUpdate
    if (lclink)                   u%crosslink      = u%crosslink      + du%crosslink
    if (luext)                    u%external       = u%external       + du%external
 
-   if (lewald) call EwaldUpdateArray
+   if (lewald) then
+      if (lcuda) then
+         call EwaldUpdateArray_cuda<<<1,1>>>
+         !r(1:3,ip) = rtm_d(1:3,ip)
+      else
+         call EwaldUpdateArray
+      end if
+   end if
    if (luext)  call UExternalUpdate(iptmove)
 
    do iploc = 1, nptm
@@ -5233,6 +5241,7 @@ subroutine MCUpdate
       if (lpolyatom .or. lellipsoid .or. lsuperball .or. lfixedori) ori(1:3,1:3,ip) = oritm(1:3,1:3,iploc)    ! orientation
 !  not sure that lfixedori is needed in the line above Jos
       call SetAtomProp(ip, ip, .false.)                        ! atom and dipole
+      !az_d(ip) = az(ip)
       drostep(1:3,ip) = drostep(1:3,ip)+drotm(1:3,iploc)       ! displacement
       if(lCellList) call UpdateCellIp(ip)
    end do
