@@ -8,11 +8,14 @@ module mol_cuda
 
    real(fp_kind),    constant :: ThreeHalf_d = 1.5
    real(fp_kind),    constant :: SqTwo_d       = sqrt(Two)
+   real(fp_kind), constant :: Zero_d = 0.0
+   real(fp_kind), constant :: One_d = 1.0
    logical,device       :: lbcbox_d                 ! box-like cell (rätblock)
    logical,device       :: lbcrd_d                  ! rhombic dodecahedral cell
    logical,device       :: lbcto_d                  ! truncated octahedral cell
    real(fp_kind),device       :: boxlen_d(3)
    real(fp_kind),device       :: boxlen2_d(3)             ! boxlen/2
+   real(fp_kind), device      :: TwoPiBoxi_d(3)
    logical,device       :: lPBC_d                   ! periodic boundary conditions
    real(fp_kind),device       :: dpbc_d(3)                ! =boxlen for some pbc, otherwise zero
    integer(4),device              :: np_d           ! number of particles
@@ -26,6 +29,8 @@ module mol_cuda
    logical,device       :: lmc_d                    ! flag for monte carlo simulation
    real(fp_kind),device       :: virial_d                 ! virial
    real(fp_kind), device, allocatable :: ro_d(:,:)         ! particle position
+   real(fp_kind), device, allocatable :: rtm_d(:,:)         ! atom position trial move
+   real(fp_kind), device, allocatable :: r_d(:,:)         ! atom position
    integer(4),device, allocatable :: nneighpn_d(:)  ! particle (local) -> number of neighbours
    integer(4),device, allocatable :: jpnlist_d(:,:) ! ineigh (local list) and ip (global or local) -> neigbour particle (1:np)
    integer(4),device              :: nbuf_d         ! length of buffer
@@ -60,9 +65,32 @@ module mol_cuda
    integer(4) :: threadssum
    integer(4),device :: threadssum_d
 
-   !variables for ewald summation
-   integer(4),device :: ncut_d
+
+   !Ewald
+   integer(4), device :: ncut_d
+   integer(4), device :: ncut2_d
+   integer(4), device :: nkvec_d
    integer(4), device :: natm_d
+   integer(4), device, allocatable :: ianatm_d(:)
+   complex(fp_kind), device, allocatable :: eikx_d(:,:)
+   complex(fp_kind), device, allocatable :: eiky_d(:,:)
+   complex(fp_kind), device, allocatable :: eikz_d(:,:)
+   complex(fp_kind), device, allocatable :: eikxtm_d(:,:)
+   complex(fp_kind), device, allocatable :: eikytm_d(:,:)
+   complex(fp_kind), device, allocatable :: eikztm_d(:,:)
+   complex(fp_kind), device, allocatable :: sumeikrtm_d(:,:)
+   complex(fp_kind), device, allocatable :: sumeikr_d(:,:)
+   complex(fp_kind), device, allocatable :: eikyzp_d(:)
+   complex(fp_kind), device, allocatable :: eikyzptm_d(:)
+   complex(fp_kind), device, allocatable :: eikyzm_d(:)
+   complex(fp_kind), device, allocatable :: eikyzmtm_d(:)
+   real(fp_kind), device, allocatable :: kfac_d(:)
+   real(fp_kind), device :: durec_d
+
+   real(fp_kind), device, allocatable :: az_d(:)
+   integer(4), device :: kvecmyid_d(2)
+   integer(4), device :: kvecoffmyid_d
+
    contains
 
 
@@ -70,6 +98,7 @@ subroutine AllocateDeviceParams
 
 
         use NListModule
+        use EnergyModule
         implicit none
 
         integer(4) :: istat
@@ -79,6 +108,8 @@ subroutine AllocateDeviceParams
         allocate(jpnlist_d(maxnneigh,npartperproc))
         allocate(utwob_d(0:nptpt))
         allocate(ro_d(3,np_alloc))
+        allocate(r_d(3,na_alloc))
+        allocate(rtm_d(3,na_alloc))
         allocate(r2umin_d(natat))
         allocate(r2atat_d(natat))
         allocate(iubuflow_d(natat))
@@ -92,6 +123,21 @@ subroutine AllocateDeviceParams
         allocate(utwobnew_d(0:nptpt))
         allocate(utwobold_d(0:nptpt))
         allocate(dutwobold(0:nptpt))
+        allocate(eikx_d(na,0:ncut))
+        allocate(eiky_d(na,0:ncut))
+        allocate(eikz_d(na,0:ncut))
+        allocate(eikxtm_d(na,0:ncut))
+        allocate(eikytm_d(na,0:ncut))
+        allocate(eikztm_d(na,0:ncut))
+        allocate(sumeikrtm_d(nkvec,4))
+        allocate(sumeikr_d(nkvec,4))
+        allocate(eikyzp_d(na))
+        allocate(eikyzptm_d(na))
+        allocate(eikyzm_d(na))
+        allocate(eikyzmtm_d(na))
+        allocate(ianatm_d(na_alloc))
+        allocate(kfac_d(nkvec))
+        allocate(az_d(na_alloc))
    if(ltime) call CpuAdd('stop', 'allocation', 1, uout)
 
 
@@ -100,9 +146,10 @@ end subroutine AllocateDeviceParams
 subroutine TransferConstantParams
 
         use Molmodule
+        use EnergyModule
         implicit none
         
-        integer(4) :: istat
+        integer(4) :: istat, ia, icut
         !istat = cudaMemcpy(boxlen2_d,boxlen2,3)
         !istat = cudaMemcpy(boxlen_d, boxlen,3)
         !istat = cudaMemcpy(dpbc_d, dpbc,3)
@@ -147,6 +194,7 @@ subroutine TransferConstantParams
         lsuperball_d = lsuperball
         lptmdutwob_d = lptmdutwob
         iinteractions_d = iinteractions
+        TwoPiBoxi_d = TwoPiBoxi
 
         lcuda = .true.
 
@@ -154,6 +202,30 @@ subroutine TransferConstantParams
         sizeofblocks_d = 512
         threadssum =16
         threadssum_d = threadssum
+
+        ncut_d = ncut
+        ncut2_d = ncut2
+        do ia=1, na
+           do icut = 0, ncut
+           eikx_d(ia,icut) = eikx(ia,icut)
+           eiky_d(ia,icut) = eiky(ia,icut)
+           eikz_d(ia,icut) = eikz(ia,icut)
+           end do
+        end do
+           !eikx_d = eikx
+           !eiky_d = eiky
+           !eikz_d = eikz
+        eikxtm_d = eikxtm
+        eikytm_d = eikytm
+        eikztm_d = eikztm
+        sumeikrtm_d = sumeikrtm
+        kfac_d = kfac
+        durec_d = du%rec
+        az_d = az
+        kvecmyid_d(1) = kvecmyid(1)
+        kvecmyid_d(2) = kvecmyid(2)
+        kvecoffmyid_d = kvecoffmyid
+        nkvec_d = nkvec
    if(ltime) call CpuAdd('stop', 'transferconstant', 1, uout)
 
 end subroutine TransferConstantParams
