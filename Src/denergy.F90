@@ -271,7 +271,6 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
            numblocks = floor(Real((nptm*np)/sizeofblocks)) + 1
            lhsoverlap = .false.
            isharedmem = 2*sizeofblocks*fp_kind + sizeofblocks*4 + threadssum*(nptpt+1)*fp_kind
-           print *, "shared: ", isharedmem, nptpt
           if(ltime) call CpuAdd('start', 'transfer_over_tD', 1, uout)
            lhsoverlap_d = .false.
           if(ltime) call CpuAdd('stop', 'transfer_over_tD', 1, uout)
@@ -444,7 +443,8 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
        call syncthreads
        if (tidx_int <= threadssum_d) then
           do i = 1, blockDim%x/threadssum_d
-             usum_aux1(tidx_int,iptjpt_arr(i)) = usum_aux1(tidx_int,iptjpt_arr(i)) + usum1(blockDim%x/threadssum_d*(tidx_int-1)+i)
+             usum_aux1(tidx_int,iptjpt_arr(threadssum_d*(i-1)+tidx_int)) = &
+                usum_aux1(tidx_int,iptjpt_arr(threadssum_d*(i-1)+tidx_int)) + usum1(threadssum_d*(i-1)+tidx_int)
           end do
        end if
           call syncthreads
@@ -1586,9 +1586,12 @@ end subroutine UTwoBodyPOld
 subroutine DUTwoBodyEwald
 
    use EnergyModule
+   use mol_cuda
+   use gpumodule
    implicit none
 
    character(40), parameter :: txroutine ='DUTwoBodyEwald'
+   integer(4) :: ierrsync, ierrasync
 
    if (ltime) call CpuAdd('start', txroutine, 2, uout)
 
@@ -1598,6 +1601,7 @@ subroutine DUTwoBodyEwald
 
 ! ... calculate
 
+  if (.not. lcuda) then
    if (txewaldrec == 'std') then
        call DUTwoBodyEwaldRecStd
        if (lewald2dlc) call DUTwoBodyEwaldRec2dlc
@@ -1606,6 +1610,27 @@ subroutine DUTwoBodyEwald
    end if
    call DUTwoBodyEwaldSelf
    if (lsurf .and. master) call DUTwoBodyEwaldSurf
+  else
+     durec_d = 0.0
+     natm_d = natm
+     ianatm_d = ianatm
+     rtm_d = rtm
+     eikx_d = eikx
+     eiky_d = eiky
+     eikz_d = eikz
+     sumeikr_d = sumeikr_d
+     print *, "before Ewald"
+     call DUTwoBodyEwaldRecStd_cuda<<<2,256>>>
+     ierrsync = cudaGetLastError()
+     ierrasync = cudaDeviceSynchronize()
+     if (ierrsync /= cudaSuccess) &
+        write(*,*) 'Sync kernel error:', cudaGetErrorString(ierrsync)
+     if (ierrasync /= cudaSuccess) &
+        write(*,*) 'Async kernel error:', cudaGetErrorString(ierrasync)
+     print *, "after Ewald"
+     du%rec = durec_d
+  end if
+
 
 ! ... update
 
@@ -1642,6 +1667,10 @@ subroutine DUTwoBodyEwaldRecStd
             eikyzp(ia)      =       eiky(ia,ny)      *eikz(ia,nz)
             eikyzmtm(ialoc) = conjg(eikytm(ialoc,ny))*eikztm(ialoc,nz)
             eikyzptm(ialoc) =       eikytm(ialoc,ny) *eikztm(ialoc,nz)
+            print *, "1: ", eiky(ia,ny)
+            print *, "2: ", eikz(ia,nz)
+            print *, "3: ", eikyzmtm(ialoc)
+            print *, "4: ", eikyzptm(ialoc)
          end do
 
          do nx = 0, ncut
@@ -2075,6 +2104,7 @@ subroutine EwaldSetArrayTM
    end do
 
 end subroutine EwaldSetArrayTM
+
 
 !************************************************************************
 !> \page denergy denergy.F90
