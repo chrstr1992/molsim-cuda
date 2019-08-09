@@ -175,7 +175,8 @@ module gpumodule
 
          inumaccept = 0
 
-         iblock1 = np / blocksize_h
+         iblock1 = ceiling(real(np) / blocksize_h)
+         print *, "iblock1: ", iblock1
          if (np < blocksize_h) iblock1 = 1
                if ( np > 122880) then
                   iloops = 4
@@ -371,7 +372,7 @@ module gpumodule
                   npt_s = npt_d
                      !iblock = numblocks / nloop * (ipart - 1)
                  !end if
-              call syncthreads
+              !call syncthreads
                   if ( id_int <= npt_s) then
                      do i=1, npt_s
                         !fac(id_int,i) = facscr_d(id_int,i)
@@ -386,9 +387,9 @@ module gpumodule
                  call syncthreads
 
              !! calculate particles that are in other blocks
-               do j =blockIDx%x, (ceiling(numblocks) - 1)
+             do j =blockIDx%x, (ceiling(real(np_d)/blocksize) - 1)
                   call syncthreads
-                  if (id_int + j*blocksize <= np_d) then
+                  if ((id_int + j*blocksize) <= np_d) then
                      rojx(id_int) = ro_d(1,id_int+j*blocksize)
                      rojy(id_int) = ro_d(2,id_int+j*blocksize)
                      rojz(id_int) = ro_d(3,id_int+j*blocksize)
@@ -402,14 +403,15 @@ module gpumodule
                         dx = rojx(i) - rotmx(id_int)
                         dy = rojy(i) - rotmy(id_int)
                         dz = rojz(i) - rotmz(id_int)
-                        !dx = ro_d(1,i+j*blocksize) - rotmx(id_int)
-                        !dy = ro_d(2,i+j*blocksize) - rotmy(id_int)
-                        !dz = ro_d(3,i+j*blocksize) - rotmz(id_int)
+                        !dx = ro_d(1,i+j*blocksize) - rotm_d(1,id)
+                        !dy = ro_d(2,i+j*blocksize) - rotm_d(2,id)
+                        !dz = ro_d(3,i+j*blocksize) - rotm_d(3,id)
                         call PBCr2_cuda(dx,dy,dz,rdist)
                         if (rdist < rsumrad_s(iptip_s,iptjp_s(i))) then
                            lhsoverlap(id) = .true.
                         end if
                         call calcUTabplus(id,jp,rdist,usum)
+                        !usum = 17.7284/sqrt(rdist)*exp(-100/sqrt(rdist))
                         E_s = E_s + usum
                         !if (id == 1) print *, "new:", jp, usum
                         !rdist = sqrt(rdist)
@@ -421,11 +423,12 @@ module gpumodule
                         dx = rojx(i) - rox(id_int)
                         dy = rojy(i) - roy(id_int)
                         dz = rojz(i) - roz(id_int)
-                        !dx = ro_d(1,i+j*blocksize) - rox(id_int)
-                        !dy = ro_d(2,i+j*blocksize) - roy(id_int)
-                        !dz = ro_d(3,i+j*blocksize) - roz(id_int)
+                        !dx = ro_d(1,i+j*blocksize) - ro_d(1,id)
+                        !dy = ro_d(2,i+j*blocksize) - ro_d(2,id)
+                        !dz = ro_d(3,i+j*blocksize) - ro_d(3,id)
                         call PBCr2_cuda(dx,dy,dz,rdist)
                         call calcUTabminus(id,jp,rdist,usum)
+                        !usum = 17.7284/sqrt(rdist)*exp(-100/sqrt(rdist))
                         E_s = E_s - usum
                         !if (id == 1) print *, "old:", jp, usum
                         !rdist = sqrt(rdist)
@@ -469,6 +472,9 @@ module gpumodule
                         dx = rox(i) - rotmx(id_int)
                         dy = roy(i) - rotmy(id_int)
                         dz = roz(i) - rotmz(id_int)
+                        !dx = ro_d(1,i+blockDim%x*(blockIDx%x-1)) - rotm_d(1,id)
+                        !dy = ro_d(2,i+blockDim%x*(blockIDx%x-1)) - rotm_d(2,id)
+                        !dz = ro_d(3,i+blockDim%x*(blockIDx%x-1)) - rotm_d(3,id)
                         call PBCr2_cuda(dx,dy,dz,rdist)
                         if (rdist < rsumrad_s(iptip_s,iptpn_d(i+(blockIDx%x-1)*blockDim%x))) then
                            lhsoverlap(id) = .true.
@@ -476,6 +482,7 @@ module gpumodule
                         !   call calcUTabplus(id,i+(blockIDx%x-1)*blockDim%x,rdist,E_s(id_int))
                         end if
                         call calcUTabplus(id,i+(blockIDx%x-1)*blockDim%x,rdist,usum)
+                        !usum = 17.7284/sqrt(rdist)*exp(-100/sqrt(rdist))
                         E_s = E_s + usum
                         !rdist = sqrt(rdist)
                         !E_s(id_int) = E_s(id_int) + 4* ((6.0/rdist)**12 - (6.0/rdist)**6)
@@ -486,7 +493,11 @@ module gpumodule
                         dx = rox(i) - rox(id_int)
                         dy = roy(i) - roy(id_int)
                         dz = roz(i) - roz(id_int)
+                        !dx = ro_d(1,i+blockDim%x*(blockIDx%x-1)) - ro_d(1,id)
+                        !dy = ro_d(2,i+blockDim%x*(blockIDx%x-1)) - ro_d(2,id)
+                        !dz = ro_d(3,i+blockDim%x*(blockIDx%x-1)) - ro_d(3,id)
                         call PBCr2_cuda(dx,dy,dz,rdist)
+                        !usum = 17.7284/sqrt(rdist)*exp(-100/sqrt(rdist))
                         call calcUTabminus(id,i+(blockIDx%x-1)*blockDim%x,rdist,usum)
                         E_s = E_s - usum
                         !rdist = sqrt(rdist)
@@ -629,7 +640,7 @@ module gpumodule
                  !if (id_int == 1) then
                     numblocks = np_d / blocksize
                   npt_s = npt_d
-               call syncthreads
+               !call syncthreads
                  !end if
                   if ( id_int <= npt_s) then
                      do i=1, npt_s
@@ -678,6 +689,9 @@ module gpumodule
                            ro_d(1,id) = rotmx(id_int)
                            ro_d(2,id) = rotmy(id_int)
                            ro_d(3,id) = rotmz(id_int)
+                           !ro_d(1,id) = rotm_d(1,id)
+                           !ro_d(2,id) = rotm_d(2,id)
+                           !ro_d(3,id) = rotm_d(3,id)
                            utot_d = utot_d + E_s
                            inumaccept = inumaccept + 1
                      end if
@@ -693,11 +707,15 @@ module gpumodule
                      dx = ro_d(1,i) - rotmx(id_int)
                      dy = ro_d(2,i) - rotmy(id_int)
                      dz = ro_d(3,i) - rotmz(id_int)
+                     !dx = ro_d(1,i) - rotm_d(1,id)
+                     !dy = ro_d(2,i) - rotm_d(2,id)
+                     !dz = ro_d(3,i) - rotm_d(3,id)
                      call PBCr2_cuda(dx,dy,dz,rdist)
                      if (rdist < rsumrad_s(iptip_s,iptpn_d(i))) then
                         lhsoverlap(id) = .true.
                      end if
                      call calcUTabplus(id,i,rdist,usum)
+                     !   usum = 17.7284/sqrt(rdist)*exp(-100/sqrt(rdist))
                      E_s = E_s + usum
                      !E_s(id_int) = E_s(id_int) + fac(iptip_s(id_int),iptip(i))/rdist(id_int) + 4*eps_s(iptip_s(id_int),iptip(i))*&
                      !          ((sig_s(iptip_s(id_int),iptip(i))/rdist(id_int))**12 - &
@@ -728,8 +746,12 @@ module gpumodule
                      dx = ro_d(1,i) - rox(id_int)
                      dy = ro_d(2,i) - roy(id_int)
                      dz = ro_d(3,i) - roz(id_int)
+                     !dx = ro_d(1,i) - ro_d(1,id)
+                     !dy = ro_d(2,i) - ro_d(2,id)
+                     !dz = ro_d(3,i) - ro_d(3,id)
                      call PBCr2_cuda(dx,dy,dz,rdist)
                      call calcUTabminus(id,i,rdist,usum)
+                     !   usum = 17.7284/sqrt(rdist)*exp(-100/sqrt(rdist))
                      E_s = E_s - usum
                      !E_s(id_int) = E_s(id_int) - fac(iptip_s(id_int),iptip(i))/rdist(id_int) - 4*eps_s(iptip_s(id_int),iptip(i))*&
                      !          ((sig_s(iptip_s(id_int),iptip(i))/rdist(id_int))**12 - &
