@@ -43,6 +43,7 @@ module mol_cuda
    real(fp_kind), device, allocatable :: ucoff_d(:)
    real(fp_kind), device :: scrlen_d
 
+
 !... in DuTotal
    logical, device      :: lhsoverlap_d
    integer(4),device    :: nptm_d
@@ -66,12 +67,13 @@ module mol_cuda
    integer(4) :: threadssum
    integer(4),device :: threadssum_d
 
-   ! bondings
+   ! bonds
    real(fp_kind), device, allocatable :: bond_d_k(:)
    real(fp_kind), device, allocatable :: bond_d_eq(:)
    real(fp_kind), device, allocatable :: bond_d_p(:)
    integer(4), device, allocatable :: bondnn_d(:,:)
    logical, device :: lchain_d
+   integer(4), device, allocatable :: ictpn_d(:)
    real(fp_kind), device, allocatable :: rsumrad(:,:)
    real(fp_kind), device, allocatable :: clink_d_k(:)
    real(fp_kind), device, allocatable :: clink_d_eq(:)
@@ -133,7 +135,8 @@ subroutine AllocateDeviceParams
         write(*,*) "2"
         allocate(seeds_d(np_alloc))
         write(*,*) "3"
-        allocate(bondnn_d(2,np_alloc))
+        allocate(bondnn_d(2,np))
+        allocate(ictpn_d(np_alloc))
         allocate(bondcl_d(4,np_alloc))
         write(*,*) "4"
         allocate(rsumrad(npt,npt))
@@ -213,6 +216,7 @@ subroutine TransferConstantParams
         lptmdutwob_d = lptmdutwob
         iinteractions_d = iinteractions
         lchain_d = lchain
+        ictpn_d = ictpn
    if(lchain) then
         bond_d_k = bond%k
         bond_d_eq = bond%eq
@@ -221,7 +225,7 @@ subroutine TransferConstantParams
    end if
 
         lclink_d = lclink
-   if(lchain) then
+   if(lclink) then
         clink_d_k = clink%k
         clink_d_eq = clink%eq
         clink_d_p = clink%p
