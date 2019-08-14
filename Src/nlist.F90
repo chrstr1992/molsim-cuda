@@ -277,14 +277,19 @@ subroutine IONList(iStage)
          allocate(ipnploc(npartperproc), nneighpn(npartperproc), stat = ierr)
          ipnploc = 0
          nneighpn = 0
-      write(*,*) "maxnneigh: ", maxnneigh
+         print *, "before jpnlist"
+         print *, lnolist
+      if (.not. lcuda) then
          allocate(jpnlist(maxnneigh,npartperproc))
          jpnlist = 0
+      end if
+         print *, "after jpnlist"
          if(ierr /= 0) then
             write(*,'(a,i10)') 'maxnneigh   = ', maxnneigh
             call WriteIOStat(txroutine, 'memory allocation failed', ierr, 2, 6)
          end if
       end if
+
 
    case (iWriteInput)
 
@@ -692,6 +697,7 @@ end subroutine NList
 subroutine SetVList
 
    use NListModule
+   use mol_cuda
    implicit none
 
    character(40), parameter :: txroutine ='SetVList'
@@ -710,9 +716,9 @@ subroutine SetVList
    else if (lmc) then
       if (lvlistllist) then           ! use linked lists to generate verlet list
          call SetLList(rcut+drnlist)
-         call SetVListMCLList
+         if (.not. lcuda) call SetVListMCLList
       else
-         call SetVListMC
+         if (.not. lcuda) call SetVListMC
       end if
    end if
 
