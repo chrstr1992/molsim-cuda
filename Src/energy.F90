@@ -339,7 +339,11 @@ subroutine UTotal(iStage)
    if (lcharge) then   ! atoms possessing charges
 
       if (lmonoatom) then
-         if (lvlist) call UTwoBodyA
+         if (lvlist) then
+            call UTwoBodyAGPU
+         else
+            call UTwoBodyA
+         end if
          if (lllist) call UTwoBodyALList
          if (lCellList) call UTwoBodyACellList
       else
@@ -457,10 +461,10 @@ subroutine UTwoBodyAGPU
    u%twob(0:nptpt) = Zero
    virtwob         = Zero
 
-   do ip = 1, np
+   do ip = 1, np-1
       !ip = ipnploc(iploc)
       ipt = iptpn(ip)
-      do jp = 2, np
+      do jp = ip+1, np
          if (lmc) then
             if (jp < ip) cycle
          end if
