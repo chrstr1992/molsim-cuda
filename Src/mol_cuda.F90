@@ -72,12 +72,13 @@ module mol_cuda
    real(fp_kind), device, allocatable :: bond_d_eq(:)
    real(fp_kind), device, allocatable :: bond_d_p(:)
    integer(4), device, allocatable :: bondnn_d(:,:)
+   real(fp_kind) :: bond_aux
    logical, device :: lchain_d
    integer(4), device, allocatable :: ictpn_d(:)
    real(fp_kind), device, allocatable :: rsumrad(:,:)
-   real(fp_kind), device, allocatable :: clink_d_k(:)
-   real(fp_kind), device, allocatable :: clink_d_eq(:)
-   real(fp_kind), device, allocatable :: clink_d_p(:)
+   real(fp_kind), device :: clink_d_k
+   real(fp_kind), device :: clink_d_eq
+   real(fp_kind), device :: clink_d_p
    integer(4), device, allocatable :: bondcl_d(:,:)
    integer(4), device, allocatable :: nbondcl_d(:)
    logical, device :: lclink_d
@@ -145,12 +146,14 @@ subroutine AllocateDeviceParams
         write(*,*) "6"
         allocate(dtran_d(npt))
         write(*,*) "7"
-        allocate(bond_d_k(npt))
-        allocate(bond_d_eq(npt))
-        allocate(bond_d_p(npt))
-        allocate(clink_d_k(npt))
-        allocate(clink_d_eq(npt))
-        allocate(clink_d_p(npt))
+        if (lchain) then
+           allocate(bond_d_k(nct))
+           bond_d_k = 0.0
+           allocate(bond_d_eq(nct))
+           bond_d_eq = 0.0
+           allocate(bond_d_p(nct))
+           bond_d_p = 0
+        end if
         allocate(nbondcl_d(np_alloc))
         allocate(ix_d(np_alloc))
         allocate(iy_d(np_alloc))
@@ -167,7 +170,7 @@ subroutine TransferConstantParams
         use PotentialModule
         implicit none
         
-        integer(4) :: istat, ipt, jpt
+        integer(4) :: istat, ipt, jpt, ict
         !istat = cudaMemcpy(boxlen2_d,boxlen2,3)
         !istat = cudaMemcpy(boxlen_d, boxlen,3)
         !istat = cudaMemcpy(dpbc_d, dpbc,3)
@@ -217,12 +220,14 @@ subroutine TransferConstantParams
         iinteractions_d = iinteractions
         lchain_d = lchain
         ictpn_d = ictpn
-   if(lchain) then
-        bond_d_k = bond%k
-        bond_d_eq = bond%eq
-        bond_d_p = bond%p
-        bondnn_d = bondnn
-   end if
+        if (lchain) then
+           do ict =1, nct
+              bond_d_k(ict) = bond(ict)%k
+              bond_d_eq(ict) = bond(ict)%eq
+              bond_d_p(ict) = bond(ict)%p
+           end do
+           bondnn_d = bondnn
+        end if
 
         lclink_d = lclink
    if(lclink) then
@@ -250,7 +255,6 @@ subroutine TransferConstantParams
         end do
         do ipt = 1, natat
            ucoff_d(ipt) = ucoff(1,ipt)
-           print *, "ucoff: ", ipt, ucoff(1,ipt)
         end do
         rsumrad = rsumrad_h
    if(ltime) call CpuAdd('stop', 'transferconstant', 1, uout)
@@ -304,14 +308,10 @@ end subroutine TransferVarParamsToHost
 
 subroutine TransferDUTotalVarToDevice
 
-        !use NListModule
-        !use Energymodule
         use Molmodule
         implicit none
         integer(4) :: i
-        !logical, intent(in) :: lhsoverlap
 
-       ! dutwob_d = du%twob
    if(ltime) call CpuAdd('start', 'transferDUtoDevice', 1, uout)
    if(ltime) call CpuAdd('start', 'nptm', 2, uout)
         nptm_d = nptm
@@ -343,7 +343,6 @@ end subroutine TransferDUTotalVarToDevice
 subroutine TransferDUTotalVarToHost
 
         use Molmodule
-        !use Energymodule
         implicit none
         integer(4) :: i
         !logical, intent(inout) :: lhsoverlap
@@ -351,11 +350,9 @@ subroutine TransferDUTotalVarToHost
         dutwobold = utwobold_d
         do i = 1, nptpt
            du%twob(i) = du%twob(i) - dutwobold(i)
-        !   print *, "du%tw: ", du%twob(i)
         end do
         du%twob(0) = sum(du%twob(1:nptpt))
    if(ltime) call CpuAdd('stop', 'transferDUToHost', 1, uout)
-        !print *, du%twob(0)
 
 
 end subroutine TransferDUTotalVarToHost
