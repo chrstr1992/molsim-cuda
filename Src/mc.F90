@@ -1474,7 +1474,6 @@ subroutine MCPass(iStage)
    use NListModule, only : drnlist, drosum
    use mol_cuda
    use gpumodule
-   use cudafor
    use MolModule
    implicit none
 
