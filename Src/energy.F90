@@ -339,7 +339,8 @@ subroutine UTotal(iStage)
    if (lcharge) then   ! atoms possessing charges
 
       if (lmonoatom) then
-         if (lvlist) then
+         print *, "lvlist", lvlist
+         if (lcuda) then
             call UTwoBodyAGPU
          else
             call UTwoBodyA
