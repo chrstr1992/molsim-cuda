@@ -721,7 +721,7 @@ module gpumodule
          real(fp_kind), intent(inout)   :: E_g(*)
          integer(4) :: npt_s
          integer(4) :: id, id_int!,
-         integer(4) :: i, j, q!, ibuf
+         integer(4) :: i, j, q, jp!, ibuf
          integer(4), value :: ipart
          integer(4), intent(in) :: nloop
          !type(grid_group) :: gg
@@ -730,6 +730,9 @@ module gpumodule
          real(fp_kind) :: bondk_s
          real(fp_kind) :: bondeq_s
          real(fp_kind) :: bondp_s
+         real(fp_kind) :: clinkk_s
+         real(fp_kind) :: clinkeq_s
+         real(fp_kind) :: clinkp_s
          real(fp_kind) :: usum
 
          np_s = np_d
@@ -824,6 +827,29 @@ module gpumodule
                         E_s = E_s - bondk_s*(rdist - bondeq_s)**bondp_s
                      end if
                   end do
+               end if
+               if (lclink_d) then
+                  if (nbondcl_d(id) /= 0) then
+                        clinkk_s = clink_d_k
+                        clinkeq_s = clink_d_eq
+                        clinkp_s = clink_d_p
+                     do i=1,nbondcl_d(id)
+                        if (numblocks_old*blocksize < bondcl_d(i,id).and. numblocks*blocksize >= bondcl_d(i,id)) then
+                           jp = bondcl_d(i,id)
+                           dx = ro_d(1,jp) - rotmx(id_int)
+                           dy = ro_d(2,jp) - rotmy(id_int)
+                           dz = ro_d(3,jp) - rotmz(id_int)
+                           call PBCr2_cuda(dx,dy,dz,rdist)
+                           E_s = E_s + clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
+
+                           dx = ro_d(1,jp) - rox(id_int)
+                           dy = ro_d(2,jp) - roy(id_int)
+                           dz = ro_d(3,jp) - roz(id_int)
+                           call PBCr2_cuda(dx,dy,dz,rdist)
+                           E_s = E_s - clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
+                        end if
+                     end do
+                  end if
                end if
                E_g(id) = E_s
             end if
