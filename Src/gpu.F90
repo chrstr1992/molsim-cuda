@@ -586,7 +586,7 @@ module gpumodule
                end if
                call syncthreads
 
-         do i = 1+ipartmin, ipartmax  ! es muss np/iloops*ipart sein, 40960 ist auch falsch, es muss np/iloops sein
+         do i = 1+ipartmin, ipartmax
             if (id == i) then
                   dured = beta_d*E_s
                   if (lhsoverlap(id) == .true.) then
@@ -730,6 +730,7 @@ module gpumodule
          real(fp_kind) :: bondk_s
          real(fp_kind) :: bondeq_s
          real(fp_kind) :: bondp_s
+         real(fp_kind) :: usum
 
          np_s = np_d
          numblocks = iblock2_d * ipart
@@ -748,14 +749,15 @@ module gpumodule
                   roy(id_int) = ro_d(2,id)
                   roz(id_int) = ro_d(3,id)
                   iptip_s = iptpn_d(id)
+                  iptjp_s(id_int) = 0
                   E_s = E_g(id)
                   iptip_s = iptpn_d(id)
                   ictpn_s = ictpn_d(id)
-                  if ( id_int <= npt_s) then
+                  do j = 1, npt_s
                      do i=1, npt_s
-                        rsumrad_s(id_int,i) = rsumrad(id_int,i)
+                        rsumrad_s(j,i) = rsumrad(j,i)
                      end do
-                  end if
+                  end do
                   if (ictpn_s /= 0) then
                         bondk_s = bond_d_k(ictpn_s)
                         bondeq_s = bond_d_eq(ictpn_s)
@@ -768,25 +770,29 @@ module gpumodule
 
 
           !! calculate particles that are in other blocks
-            do j = numblocks_old, ceiling(numblocks)
-               if (id <= np_s) then
+            do j = numblocks_old, numblocks
+               call syncthreads
                   rojx(id_int) = ro_d(1,id_int+(j-1)*blocksize)
                   rojy(id_int) = ro_d(2,id_int+(j-1)*blocksize)
                   rojz(id_int) = ro_d(3,id_int+(j-1)*blocksize)
                   iptjp_s(id_int) = iptpn_d(id_int+(j-1)*blocksize)
-               end if
                call syncthreads
-               if (id <= np_s) then
                   do i=1, blocksize
                      !new energy
+                     if (id <= np_s) then
                         dx = rojx(i) - rotmx(id_int)
                         dy = rojy(i) - rotmy(id_int)
                         dz = rojz(i) - rotmz(id_int)
+                        !dx = ro_d(i+(j-1)*blocksize) - ro_d(id)
+                        !dy = ro_d(i+(j-1)*blocksize) - ro_d(id)
+                        !dz = ro_d(i+(j-1)*blocksize) - ro_d(id)
                         call PBCr2_cuda(dx,dy,dz,rdist)
-                        if (rdist < rsumrad_s(iptip_s,iptjp_s(i))) then
+                        !if (rdist < rsumrad_s(iptip_s,iptjp_s(i))) then
+                        if (rdist < rsumrad_s(iptip_s,iptpn_d(i+(j-1)*blocksize))) then
                            lhsoverlap(id) = .true.
                         end if
-                        call calcUTabplus(id,j*blocksize + i,rdist,E_s)
+                        call calcUTabplus(id,(j-1)*blocksize + i,rdist,usum)
+                        E_s = E_s + usum
 
 
                      !old energy
@@ -794,10 +800,10 @@ module gpumodule
                         dy = rojy(i) - roy(id_int)
                         dz = rojz(i) - roz(id_int)
                         call PBCr2_cuda(dx,dy,dz,rdist)
-                        call calcUTabminus(id,j*blocksize + i,rdist,E_s)
-
+                        call calcUTabminus(id,(j-1)*blocksize + i,rdist,usum)
+                        E_s = E_s - usum
+                     end if
                   end do
-               end if
             end do
             if (id <= np_s) then
                if (ictpn_s /= 0) then
