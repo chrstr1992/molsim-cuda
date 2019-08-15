@@ -218,7 +218,8 @@ ifeq ($(ARCH), PGFORTRAN)
 
   COMP_SER = pgfortran
   LINK_SER = $(COMP_SER)
-  OPT_SER  = -O0 -Mcuda
+  OPT_SER2  = -O0 -Mcuda
+  OPT_SER  = -O3 -Mcuda
   ifeq ($(mode),double)
     OPT_SER += -Mpreprocess -DDOUBLE
   endif
@@ -304,9 +305,11 @@ DEFINES_PAR  = $(DEFINES_BASE) -D_PAR_
 
 FLAG_SER  = $(DEFINES_SER) $(OPT_SER)
 FLAG_PAR  = $(DEFINES_PAR) $(OPT_PAR)
+FLAG_CUDA  = $(DEFINES_SER) $(OPT_SER2)
 
 FLAG_SER += -I$(FFTW_PATH)
 FLAG_PAR += -I$(FFTW_PATH)
+FLAG_CUDA += -I$(FFTW_PATH)
 
 mollib = $(abspath molsim.lib)
 
@@ -408,6 +411,8 @@ testmesh:   testmesh.o mesh.o
 
 %.o: %.F90
 	$(COMP_SER) $(FLAG_SER) -o $@ -c $<
+coordinate.o: coordinate.F90
+	$(COMP_SER) $(FLAG_CUDA) -o $@ -c $<
 %_par.o: %.F90
 	$(COMP_PAR) $(FLAG_PAR) -o $@ -c $<
 
@@ -428,7 +433,7 @@ dynamic.o:        mol.o statistics.o mollib.o
 dynamic_par.o:    mol_par.o statistics_par.o mollib_par.o
 energy.o:         mol.o mollib.o celllist.o mol_cuda.o
 energy_par.o:     mol_par.o mollib_par.o celllist_par.o
-gpu.o:            mol.o mol_cuda.o mollib.o
+gpu.o:            mol.o mol_cuda.o mollib.o energy.o
 group.o:          mol.o
 group_par.o:      mol_par.o
 image.o:          mol.o mollib.o
