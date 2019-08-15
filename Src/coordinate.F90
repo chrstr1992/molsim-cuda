@@ -2476,9 +2476,9 @@ subroutine SetNetworkPos(shiftxyz, radgel, bondlen, npstrand, nnode, ronodeout, 
    call SetDiamond(nlp,rol,oril)                   ! get diamond unit cell informations
 
  ! ... shift coordinates of diamond lattice
-   rol(1,1:8) = modulo(rol(1,1:8)+1-shiftxyz(1),1.0)
-   rol(2,1:8) = modulo(rol(2,1:8)+1-shiftxyz(2),1.0)
-   rol(3,1:8) = modulo(rol(3,1:8)+1-shiftxyz(3),1.0)
+   rol(1,1:8) = modulo(real(rol(1,1:8)+1-shiftxyz(1)),1.0)
+   rol(2,1:8) = modulo(real(rol(2,1:8)+1-shiftxyz(2)),1.0)
+   rol(3,1:8) = modulo(real(rol(3,1:8)+1-shiftxyz(3)),1.0)
 
    radgel2 = radgel**2                             ! network radius squared
    celllen = Four*sqrt(Third)*bondlen*(npstrand+1) ! length of one cubic unit cell
