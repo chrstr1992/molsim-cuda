@@ -57,7 +57,6 @@ module gpumodule
          !!              MakeDecision_CalcLowerPart
       subroutine MCPassAllGPU
 
-         !use particlemodule, only: np, npt, iptip
          use precision_m
          implicit none
          logical, device :: lhsoverlap(np_d)
@@ -68,14 +67,13 @@ module gpumodule
                lhsoverlap = .false.
                E_g = 0.0
                !call GenerateRandoms_h
-               !call GenerateRandoms<<<iblock1,128>>>
+               call GenerateRandoms<<<iblock1,256>>>
                !ierr = cudaGetLastError()
                !ierra = cudaDeviceSynchronize()
                write(*,*) "Randoms"
                !if (ierr /= cudaSuccess) write(*,*) "Sync kernel error: ", cudaGetErrorString(ierr)
                !if (ierra /= cudaSuccess) write(*,*) "Async kernel err: ", cudaGetErrorString(ierra)
-               !call CalcNewPositions<<<iblock1,128>>>
-               call CalcNewPositions<<<1,1>>>
+               call CalcNewPositions<<<iblock1,256>>>
                ierr = cudaGetLastError()
                ierra = cudaDeviceSynchronize()
                write(*,*) "Positions"
@@ -177,41 +175,12 @@ module gpumodule
          iblock1 = ceiling(real(np) / blocksize_h)
          print *, "iblock1: ", iblock1
          iloops = ceiling(real(np)/20480)
+         !iloops = ceiling(real(np)/10240)
          iloops_d = iloops
-         iblock2 = iblock1 / iloops
+         iblock2 = ceiling(real(iblock1) / iloops) !probably ceiling(...)
          iblock2_d = iblock2
-         !if (np < blocksize_h) iblock1 = 1
-         !      if ( np > 122880) then
-                  !iloops = 7
-                  !iloops_d = 7
-                  !iblock2 = iblock1 / 7
-               !else if (np > 102400) then
-               !   iloops = 6
-               !   iloops_d = 6
-               !   iblock2 = iblock1 / 6
-               !else if (np > 81920) then
-               !   iloops = 5
-               !   iloops_d = 5
-               !   iblock2 = iblock1 / 5
-               !else if (np > 61440) then
-               !   iloops = 4
-               !   iloops_d = 4
-               !   iblock2 = iblock1 / 4
-               !else if (np > 40960) then
-               !   iloops = 3
-               !   iloops_d = 3
-               !   iblock2 = iblock1 / 3
-               !else if (np > 20480) then
-               !   iloops = 2
-                  !iloops_d = 2
-                  !iblock2 = iblock1 / 2
-               !else
-               !   iloops = 1
-               !   iloops_d = 1
-               !   iblock2 = iblock1
-               !end if
 
-        ! call GenerateSeeds
+         call GenerateSeeds
 
       end subroutine PrepareMC_cudaAll
 
@@ -237,12 +206,7 @@ module gpumodule
                call Random_d(seeds_d(id),ptranx(id),id)
                call Random_d(seeds_d(id),ptrany(id),id)
                call Random_d(seeds_d(id),ptranz(id),id)
-            !do id = 1, np
-            !   pmetro(id) = Random(iseed)
-            !   ptranx(id) = Random(iseed)
-            !   ptrany(id) = Random(iseed)
-            !   ptranz(id) = Random(iseed)
-            !end do
+
 
 
       end subroutine GenerateRandoms
@@ -292,18 +256,26 @@ module gpumodule
             integer(4)            :: id, id_int
        !     real(8), parameter     :: Half = 0.5d0
 
-            !id = (blockidx%x-1)*blockDim%x + threadIDx%x
+            id = (blockidx%x-1)*blockDim%x + threadIDx%x
 
-            !rotm_d(1,id) = ro_d(1,id) + (ptranx(id)-Half)*dtran_d(iptpn_d(id))
-            !rotm_d(2,id) = ro_d(2,id) + (ptrany(id)-Half)*dtran_d(iptpn_d(id))
-            !rotm_d(3,id) = ro_d(3,id) + (ptranz(id)-Half)*dtran_d(iptpn_d(id))
-            do id =1, np_d
-            rotm_d(1,id) = ro_d(1,id) + (Random_dev(iseed_d)-Half)*dtran_d(iptpn_d(id))
-            rotm_d(2,id) = ro_d(2,id) + (Random_dev(iseed_d)-Half)*dtran_d(iptpn_d(id))
-            rotm_d(3,id) = ro_d(3,id) + (Random_dev(iseed_d)-Half)*dtran_d(iptpn_d(id))
+            if (id <= np_d) then
+               rotm_d(1,id) = ro_d(1,id) + (ptranx(id)-Half)*dtran_d(iptpn_d(id))
+               rotm_d(2,id) = ro_d(2,id) + (ptrany(id)-Half)*dtran_d(iptpn_d(id))
+               rotm_d(3,id) = ro_d(3,id) + (ptranz(id)-Half)*dtran_d(iptpn_d(id))
+               call PBC_cuda(rotm_d(1,id),rotm_d(2,id),rotm_d(3,id))
+            end if
 
-            call PBC_cuda(rotm_d(1,id),rotm_d(2,id),rotm_d(3,id))
-            end do
+            if (ltest_cuda) then
+               if (id == 1) then
+                  do id =1, np_d
+                     rotm_d(1,id) = ro_d(1,id) + (Random_dev(iseed_d)-Half)*dtran_d(iptpn_d(id))
+                     rotm_d(2,id) = ro_d(2,id) + (Random_dev(iseed_d)-Half)*dtran_d(iptpn_d(id))
+                     rotm_d(3,id) = ro_d(3,id) + (Random_dev(iseed_d)-Half)*dtran_d(iptpn_d(id))
+
+                     call PBC_cuda(rotm_d(1,id),rotm_d(2,id),rotm_d(3,id))
+                  end do
+               end if
+            end if
 
       end subroutine CalcNewPositions
 
@@ -351,10 +323,12 @@ module gpumodule
          real(fp_kind) :: clinkeq_s
          real(fp_kind) :: clinkp_s
          real(fp_kind) :: usum
+         integer(4) :: np_s
 
                id = ((blockIDx%x-1) * blocksize + threadIDx%x)
                id_int = threadIDx%x
-               if (id <= np_d) then
+               np_s = np_d
+               if (id <= np_s) then
                   rotmx(id_int) = rotm_d(1,id)
                   rotmy(id_int) = rotm_d(2,id)
                   rotmz(id_int) = rotm_d(3,id)
@@ -367,7 +341,7 @@ module gpumodule
                   E_s = 0.0
                   rdist = 0.0
                   lhsoverlap(id) = .false.
-                    numblocks = np_d / blocksize
+                    numblocks = np_s / blocksize
                   npt_s = npt_d
                   if ( id_int <= npt_s) then
                      do i=1, npt_s
@@ -380,9 +354,9 @@ module gpumodule
                  call syncthreads
 
              !! calculate particles that are in other blocks
-             do j =blockIDx%x, (ceiling(real(np_d)/blocksize) - 1)
+             do j =blockIDx%x, (ceiling(real(np_s)/blocksize) - 1)
                   call syncthreads
-                  if ((id_int + j*blocksize) <= np_d) then
+                  if ((id_int + j*blocksize) <= np_s) then
                      rojx(id_int) = ro_d(1,id_int+j*blocksize)
                      rojy(id_int) = ro_d(2,id_int+j*blocksize)
                      rojz(id_int) = ro_d(3,id_int+j*blocksize)
@@ -391,7 +365,7 @@ module gpumodule
                   call syncthreads
                   do i=1, blocksize
                      jp = j*blocksize + i
-                     if (jp <= np_d) then
+                     if (jp <= np_s) then
                         !new energy
                         dx = rojx(i) - rotmx(id_int)
                         dy = rojy(i) - rotmy(id_int)
@@ -420,7 +394,7 @@ module gpumodule
                do i= 1, blocksize
                      !new energy
                   if (id_int < i) then
-                     if ((blockIDx%x-1)*blockDim%x + i <= np_d) then
+                     if ((blockIDx%x-1)*blockDim%x + i <= np_s) then
                         dx = rox(i) - rotmx(id_int)
                         dy = roy(i) - rotmy(id_int)
                         dz = roz(i) - rotmz(id_int)
@@ -442,7 +416,7 @@ module gpumodule
                   end if
                end do
 
-               if (id <= np_d) then
+               if (id <= np_s) then
                   if (ictpn_s /= 0) then
                         bondk_s = bond_d_k(ictpn_s)
                         bondeq_s = bond_d_eq(ictpn_s)
@@ -917,22 +891,13 @@ subroutine startUTwoBodyAAll(lhsoverlap)
 
 
            call TransferDUTotalVarToDevice
-         !  sizeofblocks = 512
            numblocks = floor(Real((nptm*np)/sizeofblocks)) + 1
            lhsoverlap = .false.
            isharedmem = 2*sizeofblocks*fp_kind + sizeofblocks*4 + threadssum*(nptpt+1)*fp_kind
-           print *, "shared: ", isharedmem, nptpt
-          if(ltime) call CpuAdd('start', 'transfer_over_tD', 1, uout)
            lhsoverlap_d = .false.
-          if(ltime) call CpuAdd('stop', 'transfer_over_tD', 1, uout)
-          if(ltime) call CpuAdd('start', 'calc', 1, uout)
+
            call UTwoBodyAAll<<<numblocks,sizeofblocks,isharedmem>>>(lhsoverlap_d)                ! calculate new two-body potential energy
-          if(ltime) call CpuAdd('stop', 'calc', 1, uout)
-          if(ltime) call CpuAdd('start', 'transfer_over_tH', 1, uout)
            lhsoverlap = lhsoverlap_d
-       !    istat = cudaMemcpy(lhsoverlap,lhsoverlap_d,1)
-          if(ltime) call CpuAdd('stop', 'transfer_over_tH', 1, uout)
-           !dutwob_d = du%twob
 end subroutine startUTwoBodyAAll
 
 attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
@@ -945,17 +910,14 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
    implicit none
 
    logical,    intent(out) :: lhsoverlap
-!jjdjsa
    !character(40), parameter :: txroutine ='UTwoBodyANew'
-!kasdasdasdasdsakdjasdj
+
    integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf,jp, i, j
    real(fp_kind)    :: dx, dy, dz, r2, d
    integer(4) :: tidx, t, tidx_int, istat
    integer(4),shared :: iptjpt_arr(blockDim%x)
    real(fp_kind), shared :: usum1(blockDim%x), usum2(blockDim%x)
    real(fp_kind), shared ::  usum_aux1(threadssum_d,0:nptpt_d)
-  ! real(fp_kind), shared :: usum_aux1(sumthreads,0:55)
-   !real(8), shared :: usum(512)
 !   logical    :: EllipsoidOverlap, SuperballOverlap
    tidx = blockDim%x * (blockIdx%x - 1) + threadIdx%x  !global thread index 1 ...
    tidx_int = threadIDx%x
@@ -970,13 +932,6 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
     usum1(tidx_int) = 0.0
    call syncthreads
 
-!   if (.not.lmonoatom) call Stop(txroutine, '.not.lmonoatom', uout)
-
-!   write(uout,*) txroutine
-
-   !utwobnew_d(0:nptpt_d) = Zero
-   !dutwob_d(0:nptpt_d) = Zero
-   !lhsoverlap =.true.
 
    if (tidx <= nptm_d*np_d) then
       ipt = iptpn_d(ip)
@@ -1022,12 +977,8 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
                  usum1(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
                               d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
                  if (ip == 1) print *, "new", jp, usum1(tidx_int)
-            !print *, "ip: ",ip, jp,r2, usum(tidx_int)
-                 !utwobnew_d(iptjpt) = utwobnew_d(iptjpt) + usum
-                 !istat = atomicAdd(utwobnew_d(iptjpt),usum) 
               end if
               if (.not. lptm_d(jp)) then
-             !if ( .not. any(ipnptm_d ==jp)) then
                dx = ro_d(1,ip)-ro_d(1,jp)
                dy = ro_d(2,ip)-ro_d(2,jp)
                dz = ro_d(3,ip)-ro_d(3,jp)
@@ -1063,15 +1014,10 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
                            d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
                         usum1(tidx_int) = usum1(tidx_int) - usum2(tidx_int)
                  if (ip == 1) print *, "old", jp, usum2(tidx_int)
-         !print *, "ip: ",ip, jp,r2, usum(tidx_int)
-             ! istat = atomicAdd(utwobold_d(iptjpt),usum) 
         end if
      end if
      if (iploc == 1 .and. jp <= 4) then
         if (jp > 0) then
-         !print *, "tm: ", ip, rotm_d(1,iploc), rotm_d(2,iploc), rotm_d(3,iploc)
-         !print *, "old: ", jp, ro_d(1,jp), ro_d(2,jp), ro_d(3,jp)
-         !print *, ip, jp, r2
         end if
      end if
 
@@ -1096,7 +1042,6 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
           end do
        end if
 
-       !istat = atomicAdd(utwobnew_d(iptjpt_arr(tidx_int)),usum1(tidx_int))
 
 end subroutine UTwoBodyAAll
 
