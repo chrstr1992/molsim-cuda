@@ -45,6 +45,7 @@ module gpumodule
       integer(4), device :: iloops_d
       integer(4) :: iblock1, iblock2
       integer(4), device :: iblock2_d
+      integer(4) :: ismem
 
       contains
 
@@ -90,7 +91,7 @@ module gpumodule
                write(*,*) "start second loop"
                do j = 1, iloops
                   ipart = j
-                  call MakeDecision_CalcLowerPart<<<iblock2,256>>>(E_g,lhsoverlap,ipart,iloops_d)
+                  call MakeDecision_CalcLowerPart<<<iblock2,256,ismem>>>(E_g,lhsoverlap,ipart,iloops_d)
                   ierr = cudaGetLastError()
                   ierra = cudaDeviceSynchronize()
                   write(*,*) "lower1"
@@ -112,6 +113,7 @@ module gpumodule
 
       subroutine PrepareMC_cudaAll
 
+         use precision_m
          implicit none
 
          if (.not.allocated(pmetro)) then
@@ -175,10 +177,11 @@ module gpumodule
          iblock1 = ceiling(real(np) / blocksize_h)
          print *, "iblock1: ", iblock1
          iloops = ceiling(real(np)/20480)
-         !iloops = ceiling(real(np)/10240)
          iloops_d = iloops
          iblock2 = ceiling(real(iblock1) / iloops) !probably ceiling(...)
          iblock2_d = iblock2
+
+         ismem = nbuf*fp_kind+fp_kind + fp_kind*npt+npt + fp_kind * nptpt
 
          call GenerateSeeds
 
@@ -493,19 +496,18 @@ module gpumodule
          real(fp_kind) :: rotmz
          real(fp_kind) :: rdistold
          real(fp_kind) :: rdistnew
-         real(fp_kind) :: d
-         integer(4) :: iptip_s
+         integer(4) :: iptip_s, iptjp_s
          real(fp_kind)   :: E_s
          real(fp_kind)   :: dx
          real(fp_kind)   :: dy
          real(fp_kind)   :: dz
-         real(fp_kind), shared   :: rsumrad_s(16,16)
+         real(fp_kind), shared   :: rsumrad_s(npt_d,npt_d)
          logical, intent(inout)   :: lhsoverlap(np_d)
          real(fp_kind), intent(inout)   :: E_g(*)
          integer(4), value :: ipart
          integer(4), intent(in) :: nloop
          integer(4) :: npt_s
-         integer(4) :: id, id_int, i, j , ibuf
+         integer(4) :: id, id_int, i, j , ibuf, ibuf2, istat
          type(grid_group) :: gg
          integer(4) :: ictpn_s
          real(fp_kind) :: bondk_s
@@ -514,10 +516,13 @@ module gpumodule
          real(fp_kind) :: clinkk_s
          real(fp_kind) :: clinkeq_s
          real(fp_kind) :: clinkp_s
-         real(8) :: dured
-         real(fp_kind) :: usum
+         real(fp_kind) :: dured
+         real(fp_kind) :: usum, d
          integer(4), ipartmin, ipartmax, idecision
          integer(4), np_s
+         real(fp_kind) :: beta_s
+         real(fp_kind), shared :: ubuf_s(nbuf_d)
+         real(fp_kind), shared :: du_s
 
 
                gg = this_grid()
@@ -530,6 +535,12 @@ module gpumodule
                end if
                id = ((blockIDx%x-1) * blocksize + threadIDx%x)+ipartmin
                id_int = threadIDx%x
+               do i = 0, ceiling(real(nbuf_d)/blocksize) - 1
+                  if (id_int + i *blocksize <= nbuf_d) then
+                     ubuf_s(id_int + i *blocksize) = ubuf_d(id_int + i*blocksize)
+                  end if
+               end do
+
                if (id <= np_s) then
                   rotmx = rotm_d(1,id)
                   rotmy = rotm_d(2,id)
@@ -541,6 +552,8 @@ module gpumodule
                   E_s = E_g(id)
                     numblocks = np_s / blocksize
                   npt_s = npt_d
+                  du_s = 0.0
+                  beta_s = beta_d
                   ictpn_s = ictpn_d(id)
                   if ( id_int <= npt_s) then
                      do i=1, npt_s
@@ -562,7 +575,7 @@ module gpumodule
 
          do i = 1+ipartmin, ipartmax
             if (id == i) then
-                  dured = beta_d*E_s
+                  dured = beta_s*E_s
                   if (lhsoverlap(id) == .true.) then
                       idecision = 4   !imchsreject
                   else
@@ -575,6 +588,7 @@ module gpumodule
                         if (fac_metro > One) then
                            idecision = 1 !accepted
                         else if (fac_metro > Random_dev2(iseed2_d)) then
+                        !else if (fac_metro > pmetro(id)) then
                            idecision = 1 ! accepted
                         else
                            idecision = 2 ! energy rejected
@@ -584,7 +598,8 @@ module gpumodule
                            ro_d(1,id) = rotmx
                            ro_d(2,id) = rotmy
                            ro_d(3,id) = rotmz
-                           utot_d = utot_d + E_s
+                           !utot_d = utot_d + E_s
+                           du_s = du_s + E_s
                      end if
                   end if
                   mcstat_d(iptip_s,idecision) = mcstat_d(iptip_s,idecision) + 1
@@ -593,23 +608,42 @@ module gpumodule
             roix = ro_d(1,i)
             roiy = ro_d(2,i)
             roiz = ro_d(3,i)
+            iptjp_s = iptpn_d(i)
          if ( id <= np_s) then
             if ( id > i) then
                      dx = roix - rotmx
                      dy = roiy - rotmy
                      dz = roiz - rotmz
                      call PBCr2_cuda(dx,dy,dz,rdistnew)
-                     if (rdistnew < rsumrad_s(iptip_s,iptpn_d(i))) then
+                     if (rdistnew < rsumrad_s(iptip_s,iptjp_s)) then
                         lhsoverlap(id) = .true.
                      end if
-                     call calcUTabplus(id,i,rdistnew,usum)
+                     !call calcUTabplus(id,i,rdistnew,usum)
+                    ibuf2 = iubuflow_d(iptpt_d(iptip_s,iptjp_s))
+                    ibuf = ibuf2
+                     do
+                        if (rdistnew >= ubuf_s(ibuf)) exit
+                        ibuf = ibuf+12
+                     end do
+                        d = rdistnew - ubuf_d(ibuf)
+                     usum = ubuf_s(ibuf+1)+d*(ubuf_s(ibuf+2)+d*(ubuf_s(ibuf+3)+ &
+                           d*(ubuf_s(ibuf+4)+d*(ubuf_s(ibuf+5)+d*ubuf_s(ibuf+6)))))
                      E_s = E_s + usum
                   !old energy
                      dx = roix - rox
                      dy = roiy - roy
                      dz = roiz - roz
                      call PBCr2_cuda(dx,dy,dz,rdistold)
-                     call calcUTabminus(id,i,rdistold,usum)
+                    ! call calcUTabminus(id,i,rdistold,usum)
+                    !ibuf = iubuflow_d(iptpt_d(iptip_s,iptjp_s))
+                    ibuf = ibuf2
+                     do
+                        if (rdistold >= ubuf_s(ibuf)) exit
+                        ibuf = ibuf+12
+                     end do
+                        d = rdistold - ubuf_d(ibuf)
+                     usum = ubuf_s(ibuf+1)+d*(ubuf_s(ibuf+2)+d*(ubuf_s(ibuf+3)+ &
+                           d*(ubuf_s(ibuf+4)+d*(ubuf_s(ibuf+5)+d*ubuf_s(ibuf+6)))))
                      E_s = E_s - usum
 
                !calculate bonds
@@ -657,6 +691,9 @@ module gpumodule
          end if
             call syncthreads(gg)
       end do
+      if (id_int == 1) then
+         istat = AtomicAdd(utot_d,du_s)
+      end if
 
 
       end subroutine MakeDecision_CalcLowerPart
@@ -683,7 +720,7 @@ module gpumodule
          !real(fp_kind) :: d
          integer(4) :: iptip_s
          integer(4) :: iptjp_s(256)
-        ! real(fp_kind),shared    :: ipcharge_s(1024)
+        ! real(fp_kind),shared    :: ipcharge_s(256)
          !real(fp_kind), shared   :: eps_s(16,16)
          !real(fp_kind), shared   :: sig_s(16,16)
          real(fp_kind)   :: E_s
