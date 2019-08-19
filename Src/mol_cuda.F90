@@ -92,6 +92,7 @@ module mol_cuda
    real(fp_kind), device :: beta_d
 
    logical :: lseq
+   logical,device :: ltest_cuda
 
    real(fp_kind), device, allocatable :: dtran_d(:)
 
@@ -166,7 +167,7 @@ end subroutine AllocateDeviceParams
 subroutine TransferConstantParams
 
         use Molmodule
-        use Random_Module
+        !use Random_Module
         use PotentialModule
         implicit none
         
@@ -239,6 +240,7 @@ subroutine TransferConstantParams
    end if
         lcuda = .true.
         lseq = .true.
+        ltest_cuda = .true.
 
         ro_d = ro
         sizeofblocks_d = 512
@@ -258,10 +260,10 @@ subroutine TransferConstantParams
         end do
         rsumrad = rsumrad_h
    if(ltime) call CpuAdd('stop', 'transferconstant', 1, uout)
-        ix_dev = ix
-        iy_dev = iy
-        am_dev = am
-        iseed_d = iseed
+        !ix_dev = ix
+        !iy_dev = iy
+        !am_dev = am
+        !iseed_d = iseed
 
 end subroutine TransferConstantParams
 
@@ -421,7 +423,10 @@ subroutine GenerateSeeds
    use Random_Module
    implicit none
    integer(4) :: ip
-
+   ix_dev = ix
+   iy_dev = iy
+   am_dev = am
+   iseed_d = iseed
    do ip = 1, np
      seedsnp(ip) = Random_int(iseed)
      seedsnp(ip) = -abs(seedsnp(ip))
