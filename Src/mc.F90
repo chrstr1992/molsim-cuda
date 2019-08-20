@@ -1480,7 +1480,7 @@ subroutine MCPass(iStage)
    integer(4), intent(in) :: iStage
 
    character(40), parameter :: txroutine ='MCPass'
-   integer(4) :: ipt, ict, ip, istat2
+   integer(4) :: ipt, ict, ip, istat2, ierr, ierra
    real(8)    :: Random, prandom, drnold, rchain
    logical :: lnonloc
 
@@ -1510,6 +1510,18 @@ if (lseq == .true.) then
       ro = ro_d
       r = ro
 !end do
+else if (lcuda_mcpass == .true.) then
+
+   call CalcNewPositions<<<iblock1,256>>>
+   call MCPass_cuda<<<iblock2,256,isharedmem_mcpass>>>
+   ierr = cudaGetLastError()
+   ierra = cudaDeviceSynchronize()
+   write(*,*) "Positions"
+   if (ierr /= cudaSuccess) write(*,*) "Sync kernel error: ", cudaGetErrorString(ierr)
+   if (ierra /= cudaSuccess) write(*,*) "Async kernel err: ", cudaGetErrorString(ierra)
+   u%tot = utot_d
+   ro = ro_d
+   r = ro
 else
    if(lmcsep) then ! call only local or non-local moves, not both
       prandom = Random(iseed)
