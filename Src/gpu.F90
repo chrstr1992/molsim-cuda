@@ -24,8 +24,8 @@ module gpumodule
       integer(4),device              :: imcboxreject_d = 3
       integer(4),device              :: imchsreject_d = 4
       integer(4),device              :: imchepreject_d = 5
-      integer(4),device              :: imovetype_d = 1
-      !integer(4)              :: ispartmove = 1
+      integer(4),device              :: imovetype_d
+      integer(4), device              :: ispartmove_d = 1
       !integer(4)              :: ichargechangemove = 2
       integer(4), allocatable :: arrevent(:,:,:)
       !integer(4), parameter   :: One = 1.0d0
@@ -44,8 +44,15 @@ module gpumodule
       integer(4) :: iloops
       integer(4), device :: iloops_d
       integer(4) :: iblock1, iblock2
+      integer(4), device :: iblock1_d
       integer(4), device :: iblock2_d
       integer(4) :: ismem
+
+      !MCPass_cuda
+      real(fp_kind),device :: dubond_d
+      real(fp_kind), device :: duclink_d
+      real(fp_kind), device :: dutot_d
+      integer(4) :: isharedmem_mcpass
 
       contains
 
@@ -115,6 +122,11 @@ module gpumodule
 
          use precision_m
          implicit none
+         integer(4) :: numblocks
+         integer(4) :: sizeofblocks =512
+         integer(4) :: isharedmem
+
+
 
          if (.not.allocated(pmetro)) then
             allocate(pmetro(np))
@@ -178,10 +190,14 @@ module gpumodule
          print *, "iblock1: ", iblock1
          iloops = ceiling(real(np)/20480)
          iloops_d = iloops
-         iblock2 = ceiling(real(iblock1) / iloops) !probably ceiling(...)
+         iblock2 = ceiling(real(iblock1) / iloops)
+         iblock1_d = iblock1
          iblock2_d = iblock2
 
          ismem = nbuf*fp_kind+fp_kind + fp_kind*npt+npt + fp_kind * nptpt
+         !shared memory for MCPass_cuda
+           numblocks = floor(Real((nptm*np)/sizeofblocks)) + 1
+           isharedmem_mcpass = 2*sizeofblocks*fp_kind + sizeofblocks*4 + threadssum*(nptpt+1)*fp_kind
 
          call GenerateSeeds
 
@@ -579,9 +595,9 @@ module gpumodule
                   if (lhsoverlap(id) == .true.) then
                       idecision = 4   !imchsreject
                   else
-                     if (dured > expmax) then
+                     if (dured > expmax_d) then
                         idecision = 2 ! energy rejected
-                     else if (dured < -expmax) then
+                     else if (dured < -expmax_d) then
                         idecision = 1   !accepted
                      else
                         fac_metro = exp(-dured)
@@ -1081,6 +1097,248 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
 
 
 end subroutine UTwoBodyAAll
+
+!subroutine SPartMove_cuda
+
+!   use precision_m
+!   use mol_cuda
+!  implicit none
+!  integer(4) :: iploc
+!  real(fp_kind) :: dtr
+!
+!  imovetype_d = ispartmove_d
+
+!  nptm_d = 1
+!  iploc = 1
+!  ipnptm_d(iploc) = ipmove
+!  lptm_d(ipmove) = .true.
+!  iptmove_d = iptmove
+!  dtr = dtran_d(iptmove)
+
+!  call GetRandomTrialPos
+
+
+
+!end subroutine SPartMove_cuda
+attributes(grid_global) subroutine MCPass_cuda
+
+   use mol_cuda
+   use cooperative_groups
+   use EnergyModule
+   use cudafor
+   use Random_Module
+   implicit none
+   integer(4) :: np_s
+   type(grid_group) :: gg
+   logical :: lhsoverlap
+   integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf,jp, i, j, n, idecision
+   real(fp_kind) :: beta_s, fac_metro, dured
+   real(fp_kind)    :: dx, dy, dz, r2new, r2old, d
+   integer(4) :: tidx, t, tidx_int, istat
+   integer(4),shared :: iptjpt_arr(blockDim%x)
+   real(8) :: expmax_d = 87.0d0
+   real(fp_kind), shared :: usum1(blockDim%x), usum2(blockDim%x)
+   real(fp_kind), shared ::  usum_aux1(threadssum_d,0:nptpt_d)
+
+   gg = this_grid()
+   np_s = np_d
+   beta_s = beta_d
+   !call GenerateRandoms<<<iblock1,512>>>
+
+   do n = 1, np_s
+      call syncthreads(gg)
+      tidx = blockDim%x * (blockIdx%x - 1) + threadIdx%x  !global thread index 1 ...
+      tidx_int = threadIDx%x
+      !iploc = ceiling(real((tidx-1)/np_s))+1
+      !if (iploc <= nptm_d) then
+      !   ip = ipnptm_d(iploc)
+      !end if
+      !jp = mod(tidx-1,np_s)+1
+      jp = tidx
+       usum_aux1 = 0.0
+       iptjpt = 0
+       iptjpt_arr(tidx_int) = iptjpt
+       usum1(tidx_int) = 0.0
+       lhsoverlap_d = .false.
+       dubond_d = 0.0
+       duclink_d = 0.0
+       utwobnew_d = 0.0
+      call syncthreads(gg)
+
+
+      if (tidx <= np_s) then
+         ipt = iptpn_d(n)
+           if ( jp /= n ) then
+                jpt = iptpn_d(jp)
+                iptjpt = iptpt_d(ipt,jpt)
+                iptjpt_arr(tidx_int) = iptjpt
+                   dx = rotm_d(1,n)-ro_d(1,jp)
+                   dy = rotm_d(2,n)-ro_d(2,jp)
+                   dz = rotm_d(3,n)-ro_d(3,jp)
+                 call PBCr2_cuda(dx,dy,dz,r2new)
+                 !if (lellipsoid_d) Then
+                 ! if (EllipsoidOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp),radellipsoid2,aellipsoid)) goto 400
+                 !end if
+                 !if (lsuperball_d) Then
+                 ! if (SuperballOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp))) goto 400
+                 !end if
+                 if (r2new > rcut2_d) then
+                   !do not anything
+                 else if (r2new < r2atat_d(iptjpt))then
+                     lhsoverlap_d = .true.
+                 else if (r2new < r2umin_d(iptjpt))then       ! outside lower end
+                     lhsoverlap_d = .true.
+                 else
+                    ibuf = iubuflow_d(iptjpt)
+                    do
+                       if (r2new >= ubuf_d(ibuf)) exit
+                          ibuf = ibuf+12
+                    end do
+                    d = r2new-ubuf_d(ibuf)
+                    usum1(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                                 d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
+                 end if
+
+                 !old energy
+                  dx = ro_d(1,n)-ro_d(1,jp)
+                  dy = ro_d(2,n)-ro_d(2,jp)
+                  dz = ro_d(3,n)-ro_d(3,jp)
+                  call PBCr2_cuda(dx,dy,dz,r2old)
+                  !if (lellipsoid_d) Then
+                    ! if (EllipsoidOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp),radellipsoid2,aellipsoid)) goto 400
+                  !end if
+                  !if (lsuperball_d) Then
+                    ! if (SuperballOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp))) goto 400
+                  !end if
+                  if (r2old > rcut2_d) goto 400
+                      !do not anything
+                  if (r2old < r2atat_d(iptjpt)) goto 400
+                       ! lhsoverlap = .true.
+                  if (r2old < r2umin_d(iptjpt)) goto 400      ! outside lower end
+                       ! lhsoverlap = .true.
+                 ibuf = iubuflow_d(iptjpt)
+                 do
+                    if (r2old >= ubuf_d(ibuf)) exit
+                    ibuf = ibuf+12
+                 end do
+                 d = r2old-ubuf_d(ibuf)
+                 usum2(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
+                              d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
+                 usum1(tidx_int) = usum1(tidx_int) - usum2(tidx_int)
+           end if
+        end if
+
+     400 continue
+          call syncthreads
+          if (tidx_int <= threadssum_d) then
+             do i = 1, blockDim%x/threadssum_d
+                usum_aux1(tidx_int,iptjpt_arr(threadssum_d*(i-1) + tidx_int)) = &
+                   usum_aux1(tidx_int,iptjpt_arr(threadssum_d*(i-1) + tidx_int)) + usum1(threadssum_d*(i-1)+tidx_int)
+             end do
+          end if
+             call syncthreads
+          if (tidx_int == 1) then
+             do i = 2, threadssum_d
+                do j = 1, nptpt_d
+               usum_aux1(1,j) = usum_aux1(1,j) + usum_aux1(i,j)
+               end do
+             end do
+
+             do i = 1, nptpt_d
+                istat = atomicAdd(utwobnew_d(i),usum_aux1(1,i))
+             end do
+          end if
+          call syncthreads(gg)
+          if (tidx == 1) then
+             do i = 1, nptpt_d
+                istat = atomicAdd(utwobnew_d(0), utwobnew_d(i))
+             end do
+          end if
+
+               !calculate bonds
+         if (tidx <= np_s) then
+               if (ictpn_d(n) /= 0) then
+                  do j= 1, 2
+                     if (n == bondnn_d(j,tidx)) then
+                        !dx = roix - rotmx
+                        !dy = roiy - rotmy
+                        !dz = roiz - rotmz
+                        !call PBCr2_cuda(dx,dy,dz,rdist)
+                        !E_s = E_s + bondk_s*(sqrt(rdist) - bondeq_s)**bondp_s
+
+                        !dx = roix - rox
+                        !dy = roiy - roy
+                        !dz = roiz - roz
+                        !call PBCr2_cuda(dx,dy,dz,rdist)
+                        !E_s = E_s - bondk_s*(sqrt(rdist) - bondeq_s)**bondp_s
+                        usum1(tidx_int) = usum1(tidx_int) + &
+                                   bond_d_k(ictpn_d(n))*((sqrt(r2new)-bond_d_eq(ictpn_d(n)))**bond_d_p(ictpn_d(n)) - &
+                                    (sqrt(r2old) - bond_d_eq(ictpn_d(n)))**bond_d_p(ictpn_d(n)))
+                        istat = atomicAdd(dubond_d,usum1(tidx_int))
+                     end if
+
+                  end do
+               end if
+               ! calculate crosslinks
+               if (lclink_d) then
+                  do j=1,nbondcl_d(n)
+                     if (tidx == bondcl_d(j,n)) then
+                        !dx = roix - rotmx
+                        !dy = roiy - rotmy
+                        !dz = roiz - rotmz
+                        !call PBCr2_cuda(dx,dy,dz,rdist)
+                        !E_s = E_s + clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
+
+                        !dx = roix - rox
+                        !dy = roiy - roy
+                        !dz = roiz - roz
+                        !call PBCr2_cuda(dx,dy,dz,rdist)
+                        !E_s = E_s - clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
+                        usum1(tidx_int) = usum1(tidx_int) + clink_d_k*((sqrt(r2new)-clink_d_eq)**clink_d_p - &
+                           (sqrt(r2old) - clink_d_eq)**clink_d_p)
+                        istat = atomicAdd(duclink_d,usum1(tidx_int))
+                     end if
+                  end do
+               end if
+            end if
+
+           call syncthreads(gg)
+            if (tidx == n) then
+                  dutot_d = utwobnew_d(0) !+ dubond_d + duclink_d
+                  dured = beta_s*dutot_d
+                  if (lhsoverlap_d == .true.) then
+                      idecision = 4   !imchsreject
+                  else
+                     if (dured > expmax_d) then
+                        idecision = 2 ! energy rejected
+                     else if (dured < -expmax_d) then
+                        idecision = 1   !accepted
+                     else
+                        fac_metro = exp(-dured)
+                        if (fac_metro > One) then
+                           idecision = 1 !accepted
+                        else if (fac_metro > Random_dev2(iseed2_d)) then
+                        !else if (fac_metro > pmetro(id)) then
+                           idecision = 1 ! accepted
+                        else
+                           idecision = 2 ! energy rejected
+                        end if
+                     end if
+                     if (idecision == 1) then
+                           ro_d(1,n) = rotm_d(1,n)
+                           ro_d(2,n) = rotm_d(2,n)
+                           ro_d(3,n) = rotm_d(3,n)
+                           !utot_d = utot_d + E_s
+                           utot_d = utot_d + dutot_d
+                     end if
+                  end if
+                  mcstat_d(iptpn_d(n),idecision) = mcstat_d(iptpn_d(n),idecision) + 1
+            end if
+           call syncthreads(gg)
+
+   end do
+
+end subroutine MCPass_cuda
 
 
 
