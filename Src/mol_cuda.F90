@@ -43,7 +43,10 @@ module mol_cuda
    real(fp_kind), device, allocatable :: ucoff_d(:)
    real(fp_kind), device :: scrlen_d
 
-
+! MCPass
+   integer(4),device           :: iptmove_d
+   integer(4),device           :: ipmove_d
+   real(fp_kind), device, allocatable :: dtran_d(:)
 !... in DuTotal
    logical, device      :: lhsoverlap_d
    integer(4),device    :: nptm_d
@@ -92,9 +95,9 @@ module mol_cuda
    real(fp_kind), device :: beta_d
 
    logical :: lseq
+   logical :: lcuda_mcpass
    logical,device :: ltest_cuda
 
-   real(fp_kind), device, allocatable :: dtran_d(:)
 
    real(8) :: u_aux
    integer(4), device :: iseed_d
@@ -167,7 +170,7 @@ end subroutine AllocateDeviceParams
 subroutine TransferConstantParams
 
         use Molmodule
-        !use Random_Module
+        use Random_Module
         use PotentialModule
         implicit none
         
@@ -204,6 +207,7 @@ subroutine TransferConstantParams
         rcut2_d = rcut2
         scrlen_d = scrlen
         nptpt_d = nptpt
+        !dtran_d = dtran
         r2atat_d = r2atat
         r2umin_d = r2umin
         iubuflow_d = iubuflow
@@ -240,6 +244,7 @@ subroutine TransferConstantParams
    end if
         lcuda = .true.
         lseq = .true.
+        lcuda_mcpass = .false.
         ltest_cuda = .true.
 
         ro_d = ro
@@ -260,10 +265,10 @@ subroutine TransferConstantParams
         end do
         rsumrad = rsumrad_h
    if(ltime) call CpuAdd('stop', 'transferconstant', 1, uout)
-        !ix_dev = ix
-        !iy_dev = iy
-        !am_dev = am
-        !iseed_d = iseed
+        ix_dev = ix
+        iy_dev = iy
+        am_dev = am
+        iseed_d = iseed
 
 end subroutine TransferConstantParams
 
