@@ -75,7 +75,7 @@ module gpumodule
                lhsoverlap = .false.
                E_g = 0.0
                !call GenerateRandoms_h
-               call GenerateRandoms<<<iblock1,256>>>
+               !call GenerateRandoms<<<iblock1,256>>>
                !ierr = cudaGetLastError()
                !ierra = cudaDeviceSynchronize()
                write(*,*) "Randoms"
@@ -124,7 +124,6 @@ module gpumodule
          implicit none
          integer(4) :: numblocks
          integer(4) :: sizeofblocks =512
-         integer(4) :: isharedmem
 
 
 
@@ -199,7 +198,7 @@ module gpumodule
            numblocks = floor(Real((nptm*np)/sizeofblocks)) + 1
            isharedmem_mcpass = 2*sizeofblocks*fp_kind + sizeofblocks*4 + threadssum*(nptpt+1)*fp_kind
 
-         call GenerateSeeds
+         !call GenerateSeeds
 
       end subroutine PrepareMC_cudaAll
 
@@ -277,12 +276,12 @@ module gpumodule
 
             id = (blockidx%x-1)*blockDim%x + threadIDx%x
 
-            if (id <= np_d) then
-               rotm_d(1,id) = ro_d(1,id) + (ptranx(id)-Half)*dtran_d(iptpn_d(id))
-               rotm_d(2,id) = ro_d(2,id) + (ptrany(id)-Half)*dtran_d(iptpn_d(id))
-               rotm_d(3,id) = ro_d(3,id) + (ptranz(id)-Half)*dtran_d(iptpn_d(id))
-               call PBC_cuda(rotm_d(1,id),rotm_d(2,id),rotm_d(3,id))
-            end if
+            !if (id <= np_d) then
+            !   rotm_d(1,id) = ro_d(1,id) + (ptranx(id)-Half)*dtran_d(iptpn_d(id))
+            !   rotm_d(2,id) = ro_d(2,id) + (ptrany(id)-Half)*dtran_d(iptpn_d(id))
+            !   rotm_d(3,id) = ro_d(3,id) + (ptranz(id)-Half)*dtran_d(iptpn_d(id))
+            !   call PBC_cuda(rotm_d(1,id),rotm_d(2,id),rotm_d(3,id))
+            !end if
 
             if (ltest_cuda) then
                if (id == 1) then
@@ -1029,7 +1028,6 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
                  d = r2-ubuf_d(ibuf)
                  usum1(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
                               d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
-                 if (ip == 1) print *, "new", jp, usum1(tidx_int)
               end if
               if (.not. lptm_d(jp)) then
                dx = ro_d(1,ip)-ro_d(1,jp)
@@ -1066,11 +1064,6 @@ attributes(global) subroutine UTwoBodyAAll(lhsoverlap)
               usum2(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
                            d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
                         usum1(tidx_int) = usum1(tidx_int) - usum2(tidx_int)
-                 if (ip == 1) print *, "old", jp, usum2(tidx_int)
-        end if
-     end if
-     if (iploc == 1 .and. jp <= 4) then
-        if (jp > 0) then
         end if
      end if
 
@@ -1143,7 +1136,6 @@ attributes(grid_global) subroutine MCPass_cuda
    gg = this_grid()
    np_s = np_d
    beta_s = beta_d
-   !call GenerateRandoms<<<iblock1,512>>>
 
    do n = 1, np_s
       call syncthreads(gg)
@@ -1254,7 +1246,6 @@ attributes(grid_global) subroutine MCPass_cuda
                 istat = atomicAdd(utwobnew_d(0), utwobnew_d(i))
              end do
           end if
-
                !calculate bonds
          if (tidx <= np_s) then
                if (ictpn_d(n) /= 0) then
@@ -1271,12 +1262,10 @@ attributes(grid_global) subroutine MCPass_cuda
                         !dz = roiz - roz
                         !call PBCr2_cuda(dx,dy,dz,rdist)
                         !E_s = E_s - bondk_s*(sqrt(rdist) - bondeq_s)**bondp_s
-                        usum1(tidx_int) = usum1(tidx_int) + &
-                                   bond_d_k(ictpn_d(n))*((sqrt(r2new)-bond_d_eq(ictpn_d(n)))**bond_d_p(ictpn_d(n)) - &
+                        usum1(tidx_int) = bond_d_k(ictpn_d(n))*((sqrt(r2new)-bond_d_eq(ictpn_d(n)))**bond_d_p(ictpn_d(n)) - &
                                     (sqrt(r2old) - bond_d_eq(ictpn_d(n)))**bond_d_p(ictpn_d(n)))
                         istat = atomicAdd(dubond_d,usum1(tidx_int))
                      end if
-
                   end do
                end if
                ! calculate crosslinks
@@ -1294,7 +1283,7 @@ attributes(grid_global) subroutine MCPass_cuda
                         !dz = roiz - roz
                         !call PBCr2_cuda(dx,dy,dz,rdist)
                         !E_s = E_s - clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
-                        usum1(tidx_int) = usum1(tidx_int) + clink_d_k*((sqrt(r2new)-clink_d_eq)**clink_d_p - &
+                        usum1(tidx_int) = clink_d_k*((sqrt(r2new)-clink_d_eq)**clink_d_p - &
                            (sqrt(r2old) - clink_d_eq)**clink_d_p)
                         istat = atomicAdd(duclink_d,usum1(tidx_int))
                      end if
@@ -1304,7 +1293,7 @@ attributes(grid_global) subroutine MCPass_cuda
 
            call syncthreads(gg)
             if (tidx == n) then
-                  dutot_d = utwobnew_d(0) !+ dubond_d + duclink_d
+                  dutot_d = utwobnew_d(0) + dubond_d + duclink_d
                   dured = beta_s*dutot_d
                   if (lhsoverlap_d == .true.) then
                       idecision = 4   !imchsreject
