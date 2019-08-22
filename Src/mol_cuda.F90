@@ -10,6 +10,7 @@ module mol_cuda
    real(fp_kind),    constant :: SqTwo_d       = sqrt(Two)
    real(fp_kind), constant :: Zero_d = 0.0
    real(fp_kind), constant :: One_d = 1.0
+   real(fp_kind),device    :: TwoPi_d
    logical,device       :: lbcbox_d                 ! box-like cell (rätblock)
    logical,device       :: lbcrd_d                  ! rhombic dodecahedral cell
    logical,device       :: lbcto_d                  ! truncated octahedral cell
@@ -19,6 +20,7 @@ module mol_cuda
    logical,device       :: lPBC_d                   ! periodic boundary conditions
    real(fp_kind),device       :: dpbc_d(3)                ! =boxlen for some pbc, otherwise zero
    integer(4),device              :: np_d           ! number of particles
+   integer(4), device             :: na_d
    integer(4), device    :: nptpt_d                  ! number of different particle type pairs
    logical,device                    :: lmonoatom_d
    real(fp_kind), device, allocatable       :: r2atat_d(:)     !
@@ -90,6 +92,9 @@ module mol_cuda
    real(fp_kind), device, allocatable :: az_d(:)
    integer(4), device :: kvecmyid_d(2)
    integer(4), device :: kvecoffmyid_d
+   logical, device    :: lewald2dlc_d
+
+   real(fp_kind), device :: vol_d
 
    contains
 
@@ -195,10 +200,15 @@ subroutine TransferConstantParams
         lptmdutwob_d = lptmdutwob
         iinteractions_d = iinteractions
         TwoPiBoxi_d = TwoPiBoxi
+        TwoPi_d = TwoPi
+        lewald2dlc_d = lewald2dlc
+        vol_d = vol
+        na_d = na
 
         lcuda = .true.
 
         ro_d = ro
+        r_d = r
         sizeofblocks_d = 512
         threadssum =16
         threadssum_d = threadssum
