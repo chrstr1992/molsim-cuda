@@ -1588,6 +1588,7 @@ subroutine DUTwoBodyEwald
    use EnergyModule
    use mol_cuda
    use gpumodule
+   use MolModule
    implicit none
 
    character(40), parameter :: txroutine ='DUTwoBodyEwald'
@@ -1602,32 +1603,34 @@ subroutine DUTwoBodyEwald
 ! ... calculate
 
   if (.not. lcuda) then
-   if (txewaldrec == 'std') then
-       call DUTwoBodyEwaldRecStd
-       if (lewald2dlc) call DUTwoBodyEwaldRec2dlc
-   else if (txewaldrec == 'spm') then
-       call DUTwoBodyEwaldRecSPM
-   end if
-   call DUTwoBodyEwaldSelf
-   if (lsurf .and. master) call DUTwoBodyEwaldSurf
+      if (txewaldrec == 'std') then
+          call DUTwoBodyEwaldRecStd
+          if (lewald2dlc) call DUTwoBodyEwaldRec2dlc
+      else if (txewaldrec == 'spm') then
+          call DUTwoBodyEwaldRecSPM
+      end if
+      call DUTwoBodyEwaldSelf
+      if (lsurf .and. master) call DUTwoBodyEwaldSurf
   else
      durec_d = 0.0
      natm_d = natm
      ianatm_d = ianatm
      rtm_d = rtm
-     eikx_d = eikx
-     eiky_d = eiky
-     eikz_d = eikz
-     sumeikr_d = sumeikr_d
-     print *, "before Ewald"
-     call DUTwoBodyEwaldRecStd_cuda<<<2,256>>>
+     !r_d = r
+     !vol_d = vol
+         eikx_d = eikx
+         eiky_d = eiky
+         eikz_d = eikz
+         az_d = az
+     sumeikr_d = sumeikr
+     call DUTwoBodyEwaldRecStd_cuda<<<1,1>>>
      ierrsync = cudaGetLastError()
      ierrasync = cudaDeviceSynchronize()
      if (ierrsync /= cudaSuccess) &
         write(*,*) 'Sync kernel error:', cudaGetErrorString(ierrsync)
      if (ierrasync /= cudaSuccess) &
         write(*,*) 'Async kernel error:', cudaGetErrorString(ierrasync)
-     print *, "after Ewald"
+     call DUTwoBodyEwaldSurf_cuda<<<1,1>>>
      du%rec = durec_d
   end if
 
@@ -1661,6 +1664,9 @@ subroutine DUTwoBodyEwaldRecStd
          if (ny**2+nz**2 > ncut2) cycle
          ikvec2 = ikvec2+1
          if (ikvec2 < kvecmyid(1) .or. ikvec2 > kvecmyid(2)) cycle  ! parallelize over k-vectors
+         !print *, "ikvecmyid(1): ", kvecmyid(1)
+         !print *, "ikvecmyid(2): ", kvecmyid(2)
+         !print *, "kn", kn
          do ialoc = 1, natm
             ia = ianatm(ialoc)
             eikyzm(ia)      = conjg(eiky(ia,ny))     *eikz(ia,nz)
@@ -1700,10 +1706,14 @@ subroutine DUTwoBodyEwaldRecStd
                     + real(sumeikr(kn,3))**2   + aimag(sumeikr(kn,3))**2   + real(sumeikr(kn,4))**2   + aimag(sumeikr(kn,4))**2
             term    = kfac(kn)*(termnew - termold)
             du%rec   = du%rec + term
+            print *, "du%rec: ", du%rec, kn
 
          end do
       end do
    end do
+   print *, "ncut: ", ncut
+   print *, "kn: ",kn
+   print *, "du%rec: ", du%rec
 
    if (ltime) call CpuAdd('stop', txroutine, 3, uout)
 
