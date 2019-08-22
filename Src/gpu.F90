@@ -71,11 +71,14 @@ attributes(global) subroutine DUTwoBodyEwaldRecStd_cuda
                     + real(sumeikr_d(kn,3))**2   + aimag(sumeikr_d(kn,3))**2   + real(sumeikr_d(kn,4))**2   + aimag(sumeikr_d(kn,4))**2
             term    = kfac_d(kn)*(termnew - termold)
             durec_d   = durec_d + term
+            print *, "durec", durec_d, kn
 
          end do
       end do
    end do
-
+   print *, "ncut: ", ncut_d
+   print *, "kn: ", kn
+   print *, "du%rec: ", durec_d
    !if (ltime) call CpuAdd('stop', txroutine, 3, uout)
 
 end subroutine DUTwoBodyEwaldRecStd_cuda
@@ -127,5 +130,43 @@ attributes(global) subroutine EwaldUpdateArray_cuda
    !end if
 
 end subroutine EwaldUpdateArray_cuda
+
+attributes(global) subroutine DUTwoBodyEwaldSurf_cuda
+   integer(4) :: ia, ialoc
+   real(8)    :: fac, term, sumqrx, sumqry, sumqrz, sumqrxt, sumqryt, sumqrzt
+   real(8)    :: Three=3.0d0
+
+   if (.not.lewald2dlc_d) then
+
+      fac = TwoPi_d/(Three*vol_d)
+      sumqrx = sum(az_d(1:na_d)*r_d(1,1:na_d))
+      sumqry = sum(az_d(1:na_d)*r_d(2,1:na_d))
+      sumqrz = sum(az_d(1:na_d)*r_d(3,1:na_d))
+      sumqrxt = sumqrx
+      sumqryt = sumqry
+      sumqrzt = sumqrz
+      do ialoc = 1, natm_d
+         ia = ianatm_d(ialoc)
+         sumqrxt = sumqrxt + az_d(ia)*(rtm_d(1,ialoc)-r_d(1,ia))
+         sumqryt = sumqryt + az_d(ia)*(rtm_d(2,ialoc)-r_d(2,ia))
+         sumqrzt = sumqrzt + az_d(ia)*(rtm_d(3,ialoc)-r_d(3,ia))
+      end do
+      term = fac*((sumqrxt**2+sumqryt**2+sumqrzt**2) - (sumqrx**2+sumqry**2+sumqrz**2))
+      durec_d = durec_d + term
+
+   else
+
+      fac = TwoPi_d/vol_d
+      sumqrz = sum(az_d(1:na_d)*r_d(3,1:na_d))
+      sumqrzt = sumqrz
+      do ialoc = 1, natm_d
+         ia = ianatm_d(ialoc)
+         sumqrzt = sumqrzt + az_d(ia)*(rtm_d(3,ialoc)-r_d(3,ia))
+      end do
+      term = fac*(sumqrzt**2 - sumqrz**2)
+      durec_d = durec_d + term
+
+   end if
+end subroutine DUTwoBodyEwaldSurf_cuda
 
 end module gpumodule
