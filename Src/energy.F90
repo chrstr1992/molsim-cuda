@@ -155,6 +155,8 @@ module EnergyModule
    complex(8), allocatable :: sumeikrtm(:,:) ! sum(q*exp(sx*ikx)*exp(sx*iky)*exp(ikz), trial configuration (sx,sy) = (-1,-1),(-1,1),(1,-1),(1,1)
 
    complex(8), allocatable :: eikraux(:)     ! temporary use
+   ! auxiliary array for cuda version
+   integer(4), allocatable :: knid(:)
 
 ! ... Ewald: reciprocal space: standard: 2d layer correction
 
@@ -280,8 +282,6 @@ end module EnergyModule
 subroutine UTotal(iStage)
 
    use EnergyModule
-   use cudafor
-   use mol_cuda
    implicit none
 
    integer(4), intent(in) :: iStage
@@ -290,8 +290,6 @@ subroutine UTotal(iStage)
 
    integer(4) :: ip, ia
    real(8) :: fac, dx, dy, dz, virmolecule
-   integer(4) :: ierr, ierra,ierror !debugging
-   integer(4) :: numblocks, sizeofblocks
 
    if (ltrace) call WriteTrace(1, txroutine, iStage)
 
@@ -339,37 +337,10 @@ subroutine UTotal(iStage)
 
 ! .............. select appropiate energy routines ............
 
-
-! Transfer to Device
-   call TransferVarParamsToDevice
-
-   ierror = 0
-   ierror_d = ierror
-   sizeofblocks = 512
-   numblocks = floor(Real((iinteractions-1)/sizeofblocks)) + 1
-   print *,"numblocks: ", numblocks
-
-
-
    if (lcharge) then   ! atoms possessing charges
 
       if (lmonoatom) then
-        if (lvlist) call UTwoBodyA<<<numblocks,sizeofblocks>>>
-       !debugging
-          ierr = CudaGetLastError()
-          ierra = cudaDeviceSynchronize()
-          if (ierr /= cudaSuccess) then
-                write(*,*) "Sync kernel error: ", cudaGetErrorString(ierr)
-          else if (ierra /= cudaSuccess) then
-                write(*,*) "Async kernel error: ",&
-                cudaGetErrorString(cudaGetLastError())
-          else
-                write(*,*) "no kernel error: "
-          end if
-        !Transfer to Host
-           call TransferVarParamsToHost
-           call calcU
-        !!!!!!!!!!!!!!!!!!!
+         if (lvlist) call UTwoBodyA
          if (lllist) call UTwoBodyALList
          if (lCellList) call UTwoBodyACellList
       else
@@ -413,6 +384,7 @@ end if
       call UDielDis
 
    end if
+
    if (lchain) call UBond
    if (lchain) call UAngle
    if (lclink) call UCrossLink
@@ -472,184 +444,110 @@ end subroutine UTotal
 !************************************************************************
 
 
-attributes(global) subroutine UTwoBodyA
+subroutine UTwoBodyA
 
    use EnergyModule
-   use cudafor
-   use mol_cuda
    implicit none
 
-  ! character(40), parameter :: txroutine ='UTwoBodyA'
-   integer(4) :: ip, iploc, ipt, jp, jploc, jpt, iptjpt, ibuf, Getnpmyid,istat
-   integer(4) :: i
-   real(8)    :: dx, dy, dz, r2, d !, usum, fsum
-   integer(4) :: tidx, t, tidx_int
-   real(8), shared :: usum(512), fsum(512)
-   real(8) :: fsum_aux, usum_aux(0:nptpt_d)
-   integer(4),shared :: iptjpt_arr(512)
+   character(40), parameter :: txroutine ='UTwoBodyA'
+   integer(4) :: ip, iploc, ipt, jp, jploc, jpt, iptjpt, ibuf, Getnpmyid
+   real(8)    :: dx, dy, dz, r2, d, usum, fsum, virtwob
 
-   !if (.not.lmonoatom_d) call Stop(txroutine, '.not.lmonoatom', uout)
+   if (.not.lmonoatom) call Stop(txroutine, '.not.lmonoatom', uout)
 
-   !if (ltime) call CpuAdd('start', txroutine, 2, uout)
-   tidx = blockDim%x * (blockIdx%x - 1) + threadIdx%x  !global thread index 1 ...
-   tidx_int = threadIDx%x
-   t = floor((sqrt(Real(4*np_d*(np_d-1)-8*(tidx)+1))-1)/2)
-   ip = np_d-t-1
-   jp = tidx-np_d*(np_d-1)/2+(t+1)*(t+2)/2+ip
+   if (ltime) call CpuAdd('start', txroutine, 2, uout)
 
-     if (tidx <= iinteractions_d) then
-      ipt = iptpn_d(ip)
-         jpt = iptpn_d(jp)
-         iptjpt = iptpt_d(ipt,jpt)
-         iptjpt_arr(tidx_int) = iptjpt
-         dx = ro_d(1,ip)-ro_d(1,jp)
-         dy = ro_d(2,ip)-ro_d(2,jp)
-         dz = ro_d(3,ip)-ro_d(3,jp)
-         call PBCr2_cuda(dx,dy,dz,r2)
-         if (r2 > rcut2_d) then
+   u%twob(0:nptpt) = Zero
+   virtwob         = Zero
 
-         else if (r2 < r2atat_d(iptjpt)) then
-            !usum = 1d10                ! emulate hs overlap
-            usum(tidx_int) = 1d10                ! emulate hs overlap
-         else if (r2 < r2umin_d(iptjpt)) then
-           ! call StopUTwoBodyA
-           ierror_d = -1
-         else
-            ibuf = iubuflow_d(iptjpt)
-            do
-               if (r2 >= ubuf_d(ibuf)) exit
-               ibuf = ibuf+12
-              ! if (ibuf > nbuf_d) call StopIbuf('txptpt',iptjpt)
-                ierror_d = iptjpt
-            end do
-            d = r2-ubuf_d(ibuf)
-         usum(tidx_int) = ubuf_d(ibuf+1)+d*(ubuf_d(ibuf+2)+d*(ubuf_d(ibuf+3)+ &
-                   d*(ubuf_d(ibuf+4)+d*(ubuf_d(ibuf+5)+d*ubuf_d(ibuf+6)))))
-         fsum(tidx_int) = ubuf_d(ibuf+7)+d*(ubuf_d(ibuf+8)+d*(ubuf_d(ibuf+9)+ &
-                           d*(ubuf_d(ibuf+10)+d*ubuf_d(ibuf+11)))) 
-         fsum(tidx_int) = fsum(tidx_int) * r2
+   do iploc = 1, Getnpmyid()
+      ip = ipnploc(iploc)
+      ipt = iptpn(ip)
+      do jploc = 1, nneighpn(iploc)
+         jp = jpnlist(jploc,iploc)
+         if (lmc) then
+            if (jp < ip) cycle
          end if
-         !fsum = 1.0
-         !usum = 1.0
-         !istat = atomicAdd(utwob_d(iptjpt),usum)
-         !istat = atomicSub(virtwob_d,fsum * r2)
-         !istat = atomicAdd(utwob_d(iptjpt),usum(tidx_int))
-        ! istat = atomicSub(virtwob_d,fsum(tidx_int) * r2)
-       
-       else
-            iptjpt_arr(tidx_int) = 0
-            fsum(tidx_int) = 0.0
-            usum(tidx_int) = 0.0
-       end if
-      
-     
-       call syncthreads
-       if (tidx_int == 1) then
-          do i = 1, blockDim%x
-                fsum_aux = fsum_aux + fsum(i)
-                usum_aux(iptjpt_arr(i)) = usum_aux(iptjpt_arr(i)) + usum(i)
-          end do
-        istat = atomicSub(virtwob_d,fsum_aux)
-          do i = 1, nptpt_d
-             istat = atomicAdd(utwob_d(i),usum_aux(i))
-          end do
-       end if
+         jpt = iptpn(jp)
+         iptjpt = iptpt(ipt,jpt)
+         dx = ro(1,ip)-ro(1,jp)
+         dy = ro(2,ip)-ro(2,jp)
+         dz = ro(3,ip)-ro(3,jp)
+         call PBCr2(dx,dy,dz,r2)
+         if (r2 > rcut2) cycle
+         if (r2 < r2atat(iptjpt)) then
+            usum = 1d10                ! emulate hs overlap
+         else if (r2 < r2umin(iptjpt)) then
+            call StopUTwoBodyA
+         else
+            ibuf = iubuflow(iptjpt)
+            do
+               if (r2 >= ubuf(ibuf)) exit
+               ibuf = ibuf+12
+               if (ibuf > nbuf) call StopIbuf('txptpt',iptjpt)
+            end do
+            d = r2-ubuf(ibuf)
+            usum = ubuf(ibuf+1)+d*(ubuf(ibuf+2)+d*(ubuf(ibuf+3)+ &
+                   d*(ubuf(ibuf+4)+d*(ubuf(ibuf+5)+d*ubuf(ibuf+6)))))
+            fsum = ubuf(ibuf+7)+d*(ubuf(ibuf+8)+d*(ubuf(ibuf+9)+ &
+                   d*(ubuf(ibuf+10)+d*ubuf(ibuf+11))))
+         end if
 
+         u%twob(iptjpt) = u%twob(iptjpt) + usum
+         force(1,ip) = force(1,ip) + (fsum * dx)
+         force(2,ip) = force(2,ip) + (fsum * dy)
+         force(3,ip) = force(3,ip) + (fsum * dz)
+         force(1,jp) = force(1,jp) - (fsum * dx)
+         force(2,jp) = force(2,jp) - (fsum * dy)
+         force(3,jp) = force(3,jp) - (fsum * dz)
+         virtwob     = virtwob     - (fsum * r2)
 
-           
-           
+      end do
 
-   !if (ltime) call CpuAdd('stop', txroutine, 2, uout)
+   end do
 
-   !if (lmd) then
-   !        do iploc = 1, Getnpmyid()
-   !           ip = ipnploc(iploc)
-   !           ipt = iptpn(ip)
-   !           do jploc = 1, nneighpn(iploc)
-   !              jp = jpnlist(jploc,iploc)
-   !              jpt = iptpn(jp)
-   !              iptjpt = iptpt(ipt,jpt)
-   !              dx = ro(1,ip)-ro(1,jp)
-   !              dy = ro(2,ip)-ro(2,jp)
-   !              dz = ro(3,ip)-ro(3,jp)
-   !              call PBCr2(dx,dy,dz,r2)
-   !              if (r2 > rcut2) cycle
-   !              if (r2 < r2atat(iptjpt)) then
-   !                 usum = 1d10                ! emulate hs overlap
-   !              else if (r2 < r2umin(iptjpt)) then
-   !                 call StopUTwoBodyA
-   !              else
-   !                 ibuf = iubuflow(iptjpt)
-   !                 do
-   !                    if (r2 >= ubuf(ibuf)) exit
-                       !ibuf = ibuf+12
-                       !if (ibuf > nbuf) call StopIbuf('txptpt',iptjpt)
-                    !end do
-                    !d = r2-ubuf(ibuf)
-                    !fsum = ubuf(ibuf+7)+d*(ubuf(ibuf+8)+d*(ubuf(ibuf+9)+ &
-                     !      d*(ubuf(ibuf+10)+d*ubuf(ibuf+11))))
-                 !end if
-                 !force(1,ip) = force(1,ip) + (fsum * dx)
-                 !force(2,ip) = force(2,ip) + (fsum * dy)
-                 !force(3,ip) = force(3,ip) + (fsum * dz)
-                 !force(1,jp) = force(1,jp) - (fsum * dx)
-                 !force(2,jp) = force(2,jp) - (fsum * dy)
-                 !force(3,jp) = force(3,jp) - (fsum * dz)
-              ! end do
-            !end do
-    !end if
+   u%twob(0) = sum(u%twob(1:nptpt))
 
+   u%tot     = u%tot     + u%twob(0)
+   virial    = virial    + virtwob
+   do iploc = 1, nptpt
+      print *, "utwob: ", iploc, u%twob(iploc)
+   end do
+   print *, "virial: ", virial
 
+   if (ltime) call CpuAdd('stop', txroutine, 2, uout)
+
+contains
+
+!........................................................................
+
+subroutine StopIbuf(txstring,i)
+   character(*), intent(in) :: txstring
+   integer(4),   intent(in) :: i
+   write(uout,*)
+   write(uout,'(a,i5)') txstring, i
+   call Stop(txroutine, 'ibuf > nbuf', uout)
+end subroutine StopIbuf
+
+subroutine StopUTwoBodyA
+   character(40), parameter :: txroutine ='StopUTwoBodyA'
+   write(uout,'(a,i5)')  'ip', ip
+   write(uout,'(a,i5)')  'jp', jp
+   write(uout,'(a,3e15.5)') 'ro(ip)        = ', ro(1:3,ip)
+   write(uout,'(a,3e15.5)') 'ro(jp)        = ', ro(1:3,jp)
+   write(uout,'(a,3e15.5)') 'boxlen2       = ', boxlen2
+   write(uout,'(a,3e15.5)') 'dpbc          = ', dpbc
+   write(uout,'(a,i15)')    'uout           = ', uout
+   write(uout,'(a,i15)')    'myid           = ', myid
+   write(uout,'(a,i15)')    'iptjpt         = ', iptjpt
+   write(uout,'(a,e15.5)')  'r2             = ', r2
+   write(uout,'(a,e15.5)')  'r2umin(iptjpt) = ', r2umin(iptjpt)
+   call Stop(txroutine, 'r2 < r2umin(iptjpt)', uout)
+end subroutine StopUTwoBodyA
+
+!........................................................................
 
 end subroutine UTwoBodyA
-
-subroutine calcU
-
-     use Molmodule
-     use mol_cuda
-     use Energymodule
-     implicit none
-     integer(4) :: i
-     real(8)    :: virtwob
-
-     virtwob = virtwob_d
-     virial = virial + virtwob
-     u%twob(0) = sum(u%twob(1:nptpt))
-     u%tot = u%tot + u%twob(0)
-     do i = 1, nptpt
-        print *, "utwob: ", i, u%twob(i)
-     end do
-     print *, "virial: ", virial
-end subroutine calcU
-
-!........................................................................
-
-!subroutine StopIbuf(txstring,i)
-!   character(*), intent(in) :: txstring
-!   integer(4),   intent(in) :: i
-!   write(uout,*)
-!   write(uout,'(a,i5)') txstring, i
-!   call Stop(txroutine, 'ibuf > nbuf', uout)
-!end subroutine StopIbuf
-
-!subroutine StopUTwoBodyA
-!   character(40), parameter :: txroutine ='StopUTwoBodyA'
-!   write(uout,'(a,i5)')  'ip', ip
-!   write(uout,'(a,i5)')  'jp', jp
-!   write(uout,'(a,3e15.5)') 'ro(ip)        = ', ro(1:3,ip)
-   !write(uout,'(a,3e15.5)') 'ro(jp)        = ', ro(1:3,jp)
-   !write(uout,'(a,3e15.5)') 'boxlen2       = ', boxlen2
-   !write(uout,'(a,3e15.5)') 'dpbc          = ', dpbc
-   !write(uout,'(a,i15)')    'uout           = ', uout
-   !write(uout,'(a,i15)')    'myid           = ', myid
-   !write(uout,'(a,i15)')    'iptjpt         = ', iptjpt
-   !write(uout,'(a,e15.5)')  'r2             = ', r2
-   !write(uout,'(a,e15.5)')  'r2umin(iptjpt) = ', r2umin(iptjpt)
-   !call Stop(txroutine, 'r2 < r2umin(iptjpt)', uout)
-!end subroutine StopUTwoBodyA
-
-!........................................................................
-
 
 !************************************************************************
 !> \page energy energy.F90
@@ -6719,6 +6617,7 @@ subroutine EwaldSetup
    real(8)    :: fac0, facx, facy, facz, fac, k2, kp, EwaldErrorUReal
    real(8)    :: m2, c, spl(0:order-1), b2(0:nmesh-1,3), expf, mf
    integer(4) :: nx, ny, nz, ipt, ialoc, i, m, k, z, ierr
+   integer(4) :: id !to determine kn in cuda version
    complex(8) :: a
 # ifdef F03_CBIND
    integer(C_SIZE_T) :: size_fftw_alloc
@@ -6806,6 +6705,11 @@ subroutine EwaldSetup
       end if
       nkvec_word = 4*nkvec     ! word length for communication with MPI
 
+      if (.not. allocated(knid)) then
+         allocate(knid(nkvec))
+         knid = 0
+      end if
+
       if(allocated(kfac)) deallocate(kfac)
       if(allocated(eikx)) deallocate(eikx, eiky, eikz)
       if(allocated(eikyzm)) deallocate(eikyzm, eikyzp)
@@ -6869,6 +6773,7 @@ subroutine EwaldSetup
 
 ! ... determine nkvec and kfac for the reciprocal space
 
+      id = 0
       nkvec = 0
       fac0 = TwoPi/vol
       do nz = 0, ncut
@@ -6878,10 +6783,12 @@ subroutine EwaldSetup
             facy = One
             if (ny == 0) facy = Half
             do nx = 0, ncut
+               id = id + 1
                if ((lbcrd .or. lbcto) .and. (mod((nx+ny+nz),2) /= 0)) cycle ! only even nx+ny+nz for RD and TO bc
                if (nx**2+ny**2+nz**2 > ncut2) cycle
                if (nx == 0 .and. ny == 0 .and. nz == 0) cycle
                nkvec = nkvec+1
+               knid(id) = nkvec
                facx = One
                if (nx == 0) facx = Half
                k2 = (nx*TwoPiBoxi(1))**2+(ny*TwoPiBoxi(2))**2+(nz*TwoPiBoxi(3))**2
