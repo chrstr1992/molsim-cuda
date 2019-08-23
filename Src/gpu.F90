@@ -4,7 +4,7 @@ module gpumodule
    use mol_cuda
       implicit none
 
-
+      integer(4),device :: kn_d
 
 
 
@@ -13,6 +13,7 @@ module gpumodule
 
 attributes(global) subroutine DUTwoBodyEwaldRecStd_cuda
    !character(40), parameter :: txroutine ='UEwaldRecStd'
+   implicit none
    integer(4) :: kn, nx, ny, nz, ia, ialoc, ikvec2
    real(8)    :: term, termnew, termold
 
@@ -38,10 +39,6 @@ attributes(global) subroutine DUTwoBodyEwaldRecStd_cuda
             eikyzp_d(ia)      =       eiky_d(ia,ny)      *eikz_d(ia,nz)
             eikyzmtm_d(ialoc) = conjg(eikytm_d(ialoc,ny))*eikztm_d(ialoc,nz)
             eikyzptm_d(ialoc) =       eikytm_d(ialoc,ny) *eikztm_d(ialoc,nz)
-            print *, "1: ", eiky_d(ia,ny)
-            print *, "2: ", eikz_d(ia,nz)
-            print *, "3: ", eikyzmtm_d(ialoc)
-            print *, "4: ", eikyzptm_d(ialoc)
          end do
 
          do nx = 0, ncut_d
@@ -49,6 +46,7 @@ attributes(global) subroutine DUTwoBodyEwaldRecStd_cuda
             if (nx**2+ny**2+nz**2 > ncut2_d) cycle
             if (nx == 0 .and. ny == 0 .and. nz == 0) cycle
             kn = kn + 1
+            print *, kn, nx, ny, nz
             sumeikrtm_d(kn,1) = sumeikr_d(kn,1)
             sumeikrtm_d(kn,2) = sumeikr_d(kn,2)
             sumeikrtm_d(kn,3) = sumeikr_d(kn,3)
@@ -71,17 +69,84 @@ attributes(global) subroutine DUTwoBodyEwaldRecStd_cuda
                     + real(sumeikr_d(kn,3))**2   + aimag(sumeikr_d(kn,3))**2   + real(sumeikr_d(kn,4))**2   + aimag(sumeikr_d(kn,4))**2
             term    = kfac_d(kn)*(termnew - termold)
             durec_d   = durec_d + term
-            print *, "durec", durec_d, kn
 
          end do
       end do
    end do
-   print *, "ncut: ", ncut_d
-   print *, "kn: ", kn
-   print *, "du%rec: ", durec_d
    !if (ltime) call CpuAdd('stop', txroutine, 3, uout)
 
 end subroutine DUTwoBodyEwaldRecStd_cuda
+
+attributes(grid_global) subroutine DUTwoBodyEwaldRecStd_cuda_mod
+   !character(40), parameter :: txroutine ='UEwaldRecStd'
+   use cooperative_groups
+   integer(4) :: kn, nx, ny, nz, ia, ialoc, istat, id
+   real(8)    :: term, termnew, termold
+   type(grid_group) :: gg
+
+!   if (ltime) call CpuAdd('start', txroutine, 3, uout)
+
+! ... calculate eikxtm, eikytm, and eikztm for moving particles
+
+   gg = this_grid()
+   if (threadIDx%x == 1) then
+      call EwaldSetArrayTM_cuda
+   end if
+   call syncthreads(gg)
+
+   id = (blockIDx%x - 1)*blockDim%x + threadIDx%x
+   nx = mod(id-1,ncut_d+1)
+   ny = mod(floor(real(id-1)/(ncut_d+1)),ncut_d+1)
+   nz = floor(real(id-1)/((ncut_d+1)**2))
+   kn = knid_d(id)
+   !ny = mod(threadIDx%x-1,ncut_d+1)
+   !nz = mod(floor(real(threadIDx%x-1)/(ncut_d+1)),ncut_d+1)
+   !id = threadIDx%x
+
+         if (ny**2+nz**2 > ncut2_d) goto 400
+         do ialoc = 1, natm_d
+            ia = ianatm_d(ialoc)
+            eikyzm2_d(kn,ia)      = conjg(eiky_d(ia,ny))     *eikz_d(ia,nz)
+            eikyzp2_d(kn,ia)      =       eiky_d(ia,ny)      *eikz_d(ia,nz)
+            eikyzmtm2_d(kn,ialoc) = conjg(eikytm_d(ialoc,ny))*eikztm_d(ialoc,nz)
+            eikyzptm2_d(kn,ialoc) =       eikytm_d(ialoc,ny) *eikztm_d(ialoc,nz)
+         end do
+
+         !do nx = 0, ncut_d
+            if ((lbcrd_d .or. lbcto_d) .and. (mod((nx+ny+nz),2) /= 0)) goto 400      ! only even nx+ny+nz for RD and TO bc
+            if (nx**2+ny**2+nz**2 > ncut2_d) goto 400
+            if (nx == 0 .and. ny == 0 .and. nz == 0) goto 400
+            !istat = atomicAdd(kn_d,1)
+            !kn = kn_d
+            sumeikrtm_d(kn,1) = sumeikr_d(kn,1)
+            sumeikrtm_d(kn,2) = sumeikr_d(kn,2)
+            sumeikrtm_d(kn,3) = sumeikr_d(kn,3)
+            sumeikrtm_d(kn,4) = sumeikr_d(kn,4)
+            do ialoc = 1, natm_d
+               ia = ianatm_d(ialoc)
+               sumeikrtm_d(kn,1) = sumeikrtm_d(kn,1)+az_d(ia)*  &
+                  (conjg(eikxtm_d(ialoc,nx))*eikyzmtm2_d(kn,ialoc) - conjg(eikx_d(ia,nx))*eikyzm2_d(kn,ia))
+               sumeikrtm_d(kn,2) = sumeikrtm_d(kn,2)+az_d(ia)*  &
+                  (conjg(eikxtm_d(ialoc,nx))*eikyzptm2_d(kn,ialoc) - conjg(eikx_d(ia,nx))*eikyzp2_d(kn,ia))
+               sumeikrtm_d(kn,3) = sumeikrtm_d(kn,3)+az_d(ia)*  &
+                        (eikxtm_d(ialoc,nx) *eikyzmtm2_d(kn,ialoc) -       eikx_d(ia,nx) *eikyzm2_d(kn,ia))
+               sumeikrtm_d(kn,4) = sumeikrtm_d(kn,4)+az_d(ia)*  &
+                        (eikxtm_d(ialoc,nx) *eikyzptm2_d(kn,ialoc) -       eikx_d(ia,nx) *eikyzp2_d(kn,ia))
+            end do
+
+            termnew = real(sumeikrtm_d(kn,1))**2 + aimag(sumeikrtm_d(kn,1))**2 + real(sumeikrtm_d(kn,2))**2 + aimag(sumeikrtm_d(kn,2))**2 &
+                    + real(sumeikrtm_d(kn,3))**2 + aimag(sumeikrtm_d(kn,3))**2 + real(sumeikrtm_d(kn,4))**2 + aimag(sumeikrtm_d(kn,4))**2
+            termold = real(sumeikr_d(kn,1))**2   + aimag(sumeikr_d(kn,1))**2   + real(sumeikr_d(kn,2))**2   + aimag(sumeikr_d(kn,2))**2 &
+                    + real(sumeikr_d(kn,3))**2   + aimag(sumeikr_d(kn,3))**2   + real(sumeikr_d(kn,4))**2   + aimag(sumeikr_d(kn,4))**2
+            term    = kfac_d(kn)*(termnew - termold)
+            !durec_d   = durec_d + term
+            istat = atomicAdd(durec_d, term)
+         !end do
+
+   400 continue
+   !if (ltime) call CpuAdd('stop', txroutine, 3, uout)
+
+end subroutine DUTwoBodyEwaldRecStd_cuda_mod
 
 
 attributes(device) subroutine EwaldSetArrayTM_cuda
