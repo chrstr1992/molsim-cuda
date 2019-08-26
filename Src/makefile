@@ -219,7 +219,7 @@ ifeq ($(ARCH), PGFORTRAN)
   COMP_SER = pgfortran
   LINK_SER = $(COMP_SER)
   OPT_SER2  = -O0 -Mcuda
-  OPT_SER  = -O3 -Mcuda
+  OPT_SER  = -O3 -Mcuda -Mcuda=cc70
 #-Mcuda=maxregcount:60
   ifeq ($(mode),double)
     OPT_SER += -Mpreprocess -DDOUBLE

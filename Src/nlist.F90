@@ -278,9 +278,8 @@ subroutine IONList(iStage)
          ipnploc = 0
          nneighpn = 0
          print *, "before jpnlist"
-         print *, lnolist
       if (.not. lcuda) then
-         allocate(jpnlist(maxnneigh,npartperproc))
+         allocate(jpnlist(maxnneigh,npartperproc),stat = ierr)
          jpnlist = 0
       end if
          print *, "after jpnlist"

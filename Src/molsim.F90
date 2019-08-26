@@ -55,6 +55,8 @@ program MolsimDriver
 
 ! ............... initiate and read input data ..............
    write(*,*) "start"
+   !lcuda = .false.
+   !lcuda_mcpass = .false.
    call IOMolsim(iReadInput)
    call IOSystem(iReadInput)
    call IOScale(iReadInput)
@@ -75,16 +77,17 @@ program MolsimDriver
    if (.not.lmix) call Coordinate(iWriteInput)
 
 ! .... DataTransfer
-   iinteractions = np*(np-1)/2
-   write(*,*) "start Allocation"
-   call AllocateDeviceParams
-   write(*,*) "start Constant"
-   call PrepareMC_cudaAll
-   call TransferConstantParams
-   write(*,*) "transfer successful"
+   if (lcuda) then
+      iinteractions = np*(np-1)/2
+      write(*,*) "start Allocation"
+      call AllocateDeviceParams
+      write(*,*) "start Constant"
+      call PrepareMC_cudaAll
+      call TransferConstantParams
+      write(*,*) "transfer successful"
+   end if
 
    call MolsimDriverSub(iWriteInput)
-   write(*,*) "transfer successful2"
 
 ! ............... initiate simulation ................
 
@@ -166,6 +169,7 @@ subroutine MolsimDriverSub(iStage)
    else if (lmix) then
       call MixedDriver(iStage)
    end if
+   print *, "before nlistdriver"
    call NListDriver(iStage)
    if (lsim) then
       write(*,*) "start controlAver"

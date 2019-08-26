@@ -272,7 +272,7 @@ subroutine DUTwoBody(lhsoverlap, utwobodynew, twobodyold)
    if (.not.lhsoverlap) then                     ! check hard-core overlap
       if (lcuda) then
         if(ltime) call CpuAdd('start', 'transfer_e_tH', 1, uout)
-           du%twob = utwobnew_d
+           du%twob(0:nptpt) = utwobnew_d(0:nptpt)
         if(ltime) call CpuAdd('stop', 'transfer_e_tH', 1, uout)
       else
            call twobodyold                               ! calculate old two-body potential energy
