@@ -1475,6 +1475,7 @@ subroutine MCPass(iStage)
    use mol_cuda
    use gpumodule
    use MolModule
+   use EnergyModule
    implicit none
 
    integer(4), intent(in) :: iStage
@@ -1498,15 +1499,19 @@ subroutine MCPass(iStage)
 if (lseq == .true.) then
    !utot_d = u%tot
    call MCPassAllGPU
-   !u_aux = u_aux + u%tot
-   !write(*,*) "UTotal: ", u%tot
-   !write(*,*) "Uaux: ", u_aux
    u%tot = utot_d
-   !do ip =1 , np
-      !ro(1,ip) = ro_d(1,ip)
-      !ro(2,ip) = ro_d(2,ip)
-      !ro(3,ip) = ro_d(3,ip)
-   !end do
+   !du%twob(0) = 0.0
+   !du%tot = 0.0
+   !du%bond = 0.0
+   !du%crosslink = 0.0
+   !du%twob(0) = dutwo_d
+   !du%bond = dubond_d
+   !du%crosslink = duclink_d
+   !du%tot = du%twob(0) + du%bond + du%crosslink
+   !u%tot = u%tot + du%tot
+   !u%twob(0) = u%twob(0) + du%twob(0)
+   !u%bond = u%bond + du%bond
+   !u%crosslink = u%crosslink + du%crosslink
       ro = ro_d
       r = ro
 !end do

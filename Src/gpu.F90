@@ -48,11 +48,18 @@ module gpumodule
       integer(4), device :: iblock2_d
       integer(4) :: ismem
 
+      real(fp_kind), device, allocatable :: Etwo_d(:)
+      real(fp_kind), device, allocatable :: Ebond_d(:)
+      real(fp_kind), device, allocatable :: Eclink_d(:)
+
       !MCPass_cuda
       real(fp_kind),device :: dubond_d
       real(fp_kind), device :: duclink_d
       real(fp_kind), device :: dutot_d
       integer(4) :: isharedmem_mcpass
+
+      real(fp_kind),device :: dutwo_d
+
 
       contains
 
@@ -74,6 +81,12 @@ module gpumodule
 
                lhsoverlap = .false.
                E_g = 0.0
+               !Etwo_d = 0.0
+               !Ebond_d = 0.0
+               !Eclink_d = 0.0
+               !dutwo_d = 0.0
+               !dubond_d = 0.0
+               !duclink_d = 0.0
                !call GenerateRandoms_h
                !call GenerateRandoms<<<iblock1,256>>>
                !ierr = cudaGetLastError()
@@ -169,6 +182,20 @@ module gpumodule
             ptranz_h = 0.0
          end if
 
+         if (.not.allocated(Etwo_d)) then
+            allocate(Etwo_d(np))
+            Etwo_d = 0.0
+         end if
+
+         if (.not.allocated(Ebond_d)) then
+            allocate(Ebond_d(np))
+            Ebond_d = 0.0
+         end if
+         if (.not.allocated(Eclink_d)) then
+            allocate(Eclink_d(np))
+            Eclink_d = 0.0
+         end if
+
          if (.not.allocated(mcstat_d)) then
             allocate(mcstat_d(np,5))
             mcstat_d = 0
@@ -190,6 +217,7 @@ module gpumodule
          iloops = ceiling(real(np)/20480)
          iloops_d = iloops
          iblock2 = ceiling(real(iblock1) / iloops)
+         print *, "iblock2: ", iblock2
          iblock1_d = iblock1
          iblock2_d = iblock2
 
@@ -310,7 +338,7 @@ module gpumodule
 
          use precision_m
          implicit none
-         real(fp_kind)  :: numblocks
+         integer(4)  :: numblocks
          real(fp_kind),shared :: rox(256)
          real(fp_kind),shared :: roy(256)
          real(fp_kind),shared :: roz(256)
@@ -334,6 +362,9 @@ module gpumodule
          integer(4) :: npt_s
          integer(4) :: id, id_int, i, j, jp
          integer(4) :: ictpn_s
+         !real(fp_kind) :: Etwo_s
+         !real(fp_kind) :: Ebond_s
+         !real(fp_kind) :: Eclink_s
          real(fp_kind) :: bondk_s
          real(fp_kind) :: bondeq_s
          real(fp_kind) :: bondp_s
@@ -346,6 +377,7 @@ module gpumodule
                id = ((blockIDx%x-1) * blocksize + threadIDx%x)
                id_int = threadIDx%x
                np_s = np_d
+               numblocks = ceiling(real(np_s)/blocksize) -1
                if (id <= np_s) then
                   rotmx(id_int) = rotm_d(1,id)
                   rotmy(id_int) = rotm_d(2,id)
@@ -357,22 +389,24 @@ module gpumodule
                   iptjp_s(id_int) = 0
                   ictpn_s = ictpn_d(id)
                   E_s = 0.0
+                  !Etwo_s = 0.0
+                  !Ebond_s = 0.0
+                  !Eclink_s = 0.0
                   rdist = 0.0
                   lhsoverlap(id) = .false.
-                    numblocks = np_s / blocksize
                   npt_s = npt_d
                   if ( id_int <= npt_s) then
                      do i=1, npt_s
                         rsumrad_s(id_int,i) = rsumrad(id_int,i)
                      end do
                   end if
-                end if
+               end if
 
 
                  call syncthreads
 
              !! calculate particles that are in other blocks
-             do j =blockIDx%x, (ceiling(real(np_s)/blocksize) - 1)
+             do j =blockIDx%x, numblocks
                   call syncthreads
                   if ((id_int + j*blocksize) <= np_s) then
                      rojx(id_int) = ro_d(1,id_int+j*blocksize)
@@ -394,6 +428,7 @@ module gpumodule
                         end if
                         call calcUTabplus(id,jp,rdist,usum)
                         E_s = E_s + usum
+                        !Etwo_s = Etwo_s + usum
 
                      !old energy
                         dx = rojx(i) - rox(id_int)
@@ -402,6 +437,7 @@ module gpumodule
                         call PBCr2_cuda(dx,dy,dz,rdist)
                         call calcUTabminus(id,jp,rdist,usum)
                         E_s = E_s - usum
+                        !Etwo_s = Etwo_s - usum
                      end if
                   end do
                end do
@@ -422,6 +458,7 @@ module gpumodule
                         end if
                         call calcUTabplus(id,i+(blockIDx%x-1)*blockDim%x,rdist,usum)
                         E_s = E_s + usum
+                        !Etwo_s = Etwo_s + usum
 
                      !old energy
                         dx = rox(i) - rox(id_int)
@@ -430,6 +467,7 @@ module gpumodule
                         call PBCr2_cuda(dx,dy,dz,rdist)
                         call calcUTabminus(id,i+(blockIDx%x-1)*blockDim%x,rdist,usum)
                         E_s = E_s - usum
+                        !Etwo_s = Etwo_s - usum
                      end if
                   end if
                end do
@@ -447,12 +485,14 @@ module gpumodule
                            dz = ro_d(3, jp) - rotmz(id_int)
                            call PBCr2_cuda(dx,dy,dz,rdist)
                            E_s = E_s + bondk_s*(sqrt(rdist) - bondeq_s)**bondp_s
+                           !Ebond_s = Ebond_s + bondk_s*(sqrt(rdist) - bondeq_s)**bondp_s
 
                            dx = ro_d(1, jp) - rox(id_int)
                            dy = ro_d(2, jp) - roy(id_int)
                            dz = ro_d(3, jp) - roz(id_int)
                            call PBCr2_cuda(dx,dy,dz,rdist)
                            E_s = E_s - bondk_s*(sqrt(rdist) - bondeq_s)**bondp_s
+                           !Ebond_s = Ebond_s - bondk_s*(sqrt(rdist) - bondeq_s)**bondp_s
                         end if
                      end do
                   end if
@@ -469,20 +509,25 @@ module gpumodule
                               dz = ro_d(3,jp) - rotmz(id_int)
                               call PBCr2_cuda(dx,dy,dz,rdist)
                               E_s = E_s + clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
+                              !Eclink_s = Eclink_s + clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
 
                               dx = ro_d(1,jp) - rox(id_int)
                               dy = ro_d(2,jp) - roy(id_int)
                               dz = ro_d(3,jp) - roz(id_int)
                               call PBCr2_cuda(dx,dy,dz,rdist)
                               E_s = E_s - clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
+                              !Eclink_s = Eclink_s - clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
                            end if
                         end do
                      end if
                   end if
+                  E_g(id) = E_s
+                  !Etwo_d(id) = Etwo_s
+                  !Ebond_d(id) = Ebond_s
+                  !Eclink_d(id) = Eclink_s
                end if
 
 
-                  E_g(id) = E_s
 
       end subroutine CalculateUpperPart
 
@@ -499,7 +544,7 @@ module gpumodule
 
          real(fp_kind) :: fac_metro
          real(8) :: expmax_d = 87.0d0
-         real(8)  :: numblocks
+         !real(8)  :: numblocks
          real(fp_kind) :: rox
          real(fp_kind) :: roy
          real(fp_kind) :: roz
@@ -525,6 +570,9 @@ module gpumodule
          integer(4) :: id, id_int, i, j , ibuf, ibuf2, istat
          type(grid_group) :: gg
          integer(4) :: ictpn_s
+         !real(fp_kind) :: Etwo_s
+         !real(fp_kind) :: Ebond_s
+         !real(fp_kind) :: Eclink_s
          real(fp_kind) :: bondk_s
          real(fp_kind) :: bondeq_s
          real(fp_kind) :: bondp_s
@@ -538,6 +586,9 @@ module gpumodule
          real(fp_kind) :: beta_s
          real(fp_kind), shared :: ubuf_s(nbuf_d)
          real(fp_kind), shared :: du_s
+         !real(fp_kind), shared :: dutwo_s
+         !real(fp_kind), shared :: dubond_s
+         !real(fp_kind), shared :: duclink_s
 
 
                gg = this_grid()
@@ -550,9 +601,9 @@ module gpumodule
                end if
                id = ((blockIDx%x-1) * blocksize + threadIDx%x)+ipartmin
                id_int = threadIDx%x
-               do i = 0, ceiling(real(nbuf_d)/blocksize) - 1
-                  if (id_int + i *blocksize <= nbuf_d) then
-                     ubuf_s(id_int + i *blocksize) = ubuf_d(id_int + i*blocksize)
+               do i = 0, ceiling(real(nbuf_d)/blockDim%x) - 1
+                  if (id_int + i *blockDim%x <= nbuf_d) then
+                     ubuf_s(id_int + i *blockDim%x) = ubuf_d(id_int + i*blockDim%x)
                   end if
                end do
 
@@ -565,9 +616,15 @@ module gpumodule
                   roz = ro_d(3,id)
                   iptip_s = iptpn_d(id)
                   E_s = E_g(id)
-                    numblocks = np_s / blocksize
+                  !Etwo_s = Etwo_d(id)
+                  !Ebond_s = Ebond_d(id)
+                  !Eclink_s = Eclink_d(id)
+                    !numblocks = np_s / blocksize
                   npt_s = npt_d
                   du_s = 0.0
+                  !dutwo_s = 0.0
+                  !dubond_s = 0.0
+                  !duclink_s = 0.0
                   beta_s = beta_d
                   ictpn_s = ictpn_d(id)
                   if ( id_int <= npt_s) then
@@ -615,6 +672,9 @@ module gpumodule
                            ro_d(3,id) = rotmz
                            !utot_d = utot_d + E_s
                            du_s = du_s + E_s
+                           !dutwo_s = dutwo_s + Etwo_s
+                           !dubond_s = dubond_s + Ebond_s
+                           !duclink_s = duclink_s + Eclink_s
                      end if
                   end if
                   mcstat_d(iptip_s,idecision) = mcstat_d(iptip_s,idecision) + 1
@@ -644,6 +704,7 @@ module gpumodule
                      usum = ubuf_s(ibuf+1)+d*(ubuf_s(ibuf+2)+d*(ubuf_s(ibuf+3)+ &
                            d*(ubuf_s(ibuf+4)+d*(ubuf_s(ibuf+5)+d*ubuf_s(ibuf+6)))))
                      E_s = E_s + usum
+                     !Etwo_s = Etwo_s + usum
                   !old energy
                      dx = roix - rox
                      dy = roiy - roy
@@ -660,6 +721,7 @@ module gpumodule
                      usum = ubuf_s(ibuf+1)+d*(ubuf_s(ibuf+2)+d*(ubuf_s(ibuf+3)+ &
                            d*(ubuf_s(ibuf+4)+d*(ubuf_s(ibuf+5)+d*ubuf_s(ibuf+6)))))
                      E_s = E_s - usum
+                     !Etwo_s = Etwo_s - usum
 
                !calculate bonds
                if (ictpn_d(i) /= 0) then
@@ -678,6 +740,8 @@ module gpumodule
                         !E_s = E_s - bondk_s*(sqrt(rdist) - bondeq_s)**bondp_s
                         E_s = E_s + bondk_s*((sqrt(rdistnew)-bondeq_s)**bondp_s - &
                            (sqrt(rdistold) - bondeq_s)**bondp_s)
+                        !Ebond_s = Ebond_s + bondk_s*((sqrt(rdistnew)-bondeq_s)**bondp_s - &
+                        !   (sqrt(rdistold) - bondeq_s)**bondp_s)
                      end if
 
                   end do
@@ -699,6 +763,8 @@ module gpumodule
                         !E_s = E_s - clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
                         E_s = E_s + clinkk_s*((sqrt(rdistnew)-clinkeq_s)**clinkp_s - &
                            (sqrt(rdistold) - clinkeq_s)**clinkp_s)
+                        !Eclink_s = Eclink_s + clinkk_s*((sqrt(rdistnew)-clinkeq_s)**clinkp_s - &
+                        !   (sqrt(rdistold) - clinkeq_s)**clinkp_s)
                      end if
                   end do
                end if
@@ -706,8 +772,13 @@ module gpumodule
          end if
             call syncthreads(gg)
       end do
-      if (id_int == 1) then
-         istat = AtomicAdd(utot_d,du_s)
+      if (id <= np_s) then
+         if (id_int == 1) then
+            istat = AtomicAdd(utot_d,du_s)
+            !istat = AtomicAdd(dutwo_d,dutwo_s)
+            !istat = AtomicAdd(dubond_d,dubond_s)
+            !istat = AtomicAdd(duclink_d,duclink_s)
+         end if
       end if
 
 
@@ -719,8 +790,8 @@ module gpumodule
          !use cooperative_groups
          use precision_m
          implicit none
-         real(fp_kind)  ::numblocks
-         real(fp_kind)  ::numblocks_old
+         integer(4)  ::numblocks
+         integer(4)  ::numblocks_old
          real(fp_kind),shared :: rox(256)
          real(fp_kind),shared :: roy(256)
          real(fp_kind),shared :: roz(256)
@@ -739,6 +810,9 @@ module gpumodule
          !real(fp_kind), shared   :: eps_s(16,16)
          !real(fp_kind), shared   :: sig_s(16,16)
          real(fp_kind)   :: E_s
+         !real(fp_kind) :: Etwo_s
+         !real(fp_kind) :: Ebond_s
+         !real(fp_kind) :: Eclink_s
          real(fp_kind)   :: dx
          real(fp_kind)   :: dy
          real(fp_kind)   :: dz
@@ -768,7 +842,7 @@ module gpumodule
 
          !gg = this_grid()
          do ipart_2 = ipart, nloop - 1
-            id = ((blockIDx%x-1) * blocksize + threadIDx%x)+(iblock2_d*blocksize*ipart_2)
+            id = ((blockIDx%x-1) * blockDim%x + threadIDx%x)+(iblock2_d*blockDim%x*ipart_2)
                id_int = threadIDx%x
                if (id <= np_s) then
                   rotmx(id_int) = rotm_d(1,id)
@@ -780,6 +854,9 @@ module gpumodule
                   iptip_s = iptpn_d(id)
                   iptjp_s(id_int) = 0
                   E_s = E_g(id)
+                  !Etwo_s = Etwo_d(id)
+                  !Ebond_s = Ebond_d(id)
+                  !Eclink_s = Eclink_d(id)
                   iptip_s = iptpn_d(id)
                   ictpn_s = ictpn_d(id)
                   do j = 1, npt_s
@@ -801,14 +878,14 @@ module gpumodule
           !! calculate particles that are in other blocks
             do j = numblocks_old, numblocks
                call syncthreads
-                  rojx(id_int) = ro_d(1,id_int+(j-1)*blocksize)
-                  rojy(id_int) = ro_d(2,id_int+(j-1)*blocksize)
-                  rojz(id_int) = ro_d(3,id_int+(j-1)*blocksize)
-                  iptjp_s(id_int) = iptpn_d(id_int+(j-1)*blocksize)
+                  rojx(id_int) = ro_d(1,id_int+(j-1)*blockDim%x)
+                  rojy(id_int) = ro_d(2,id_int+(j-1)*blockDim%x)
+                  rojz(id_int) = ro_d(3,id_int+(j-1)*blockDim%x)
+                  iptjp_s(id_int) = iptpn_d(id_int+(j-1)*blockDim%x)
                call syncthreads
+               if (id <= np_s) then
                   do i=1, blocksize
                      !new energy
-                     if (id <= np_s) then
                         dx = rojx(i) - rotmx(id_int)
                         dy = rojy(i) - rotmy(id_int)
                         dz = rojz(i) - rotmz(id_int)
@@ -817,11 +894,12 @@ module gpumodule
                         !dz = ro_d(i+(j-1)*blocksize) - ro_d(id)
                         call PBCr2_cuda(dx,dy,dz,rdist)
                         !if (rdist < rsumrad_s(iptip_s,iptjp_s(i))) then
-                        if (rdist < rsumrad_s(iptip_s,iptpn_d(i+(j-1)*blocksize))) then
+                        if (rdist < rsumrad_s(iptip_s,iptpn_d(i+(j-1)*blockDim%x))) then
                            lhsoverlap(id) = .true.
                         end if
-                        call calcUTabplus(id,(j-1)*blocksize + i,rdist,usum)
+                        call calcUTabplus(id,(j-1)*blockDim%x + i,rdist,usum)
                         E_s = E_s + usum
+                        !Etwo_s = Etwo_s + usum
 
 
                      !old energy
@@ -829,28 +907,32 @@ module gpumodule
                         dy = rojy(i) - roy(id_int)
                         dz = rojz(i) - roz(id_int)
                         call PBCr2_cuda(dx,dy,dz,rdist)
-                        call calcUTabminus(id,(j-1)*blocksize + i,rdist,usum)
+                        call calcUTabminus(id,(j-1)*blockDim%x + i,rdist,usum)
                         E_s = E_s - usum
-                     end if
+                        !Etwo_s = Etwo_s - usum
                   end do
+               end if
             end do
             if (id <= np_s) then
                if (ictpn_s /= 0) then
                   do q= 1, 2
-                     if (numblocks_old*blocksize <= bondnn_d(q,id) .and. numblocks*blocksize >= bondnn_d(q,id) ) then
-                        dx = rojx(id_int) - rotmx(id_int)
-                        dy = rojy(id_int) - rotmy(id_int)
-                        dz = rojz(id_int) - rotmz(id_int)
+                     if ((numblocks_old-1)*blockDim%x < bondnn_d(q,id) .and. numblocks*blockDim%x >= bondnn_d(q,id) ) then
+                        jp = bondnn_d(q,id)
+                        dx = ro_d(1,jp) - rotmx(id_int)
+                        dy = ro_d(2,jp) - rotmy(id_int)
+                        dz = ro_d(3,jp) - rotmz(id_int)
                         call PBCr2_cuda(dx,dy,dz,rdist)
                         rdist = sqrt(rdist)
                         E_s = E_s + bondk_s*(rdist - bondeq_s)**bondp_s
+                        !Ebond_s = Ebond_s + bondk_s*(rdist - bondeq_s)**bondp_s
 
-                        dx = rojx(id_int) - rox(id_int)
-                        dy = rojy(id_int) - roy(id_int)
-                        dz = rojz(id_int) - roz(id_int)
+                        dx = ro_d(1,jp) - rox(id_int)
+                        dy = ro_d(2,jp) - roy(id_int)
+                        dz = ro_d(3,jp) - roz(id_int)
                         call PBCr2_cuda(dx,dy,dz,rdist)
                         rdist = sqrt(rdist)
                         E_s = E_s - bondk_s*(rdist - bondeq_s)**bondp_s
+                        !Ebond_s = Ebond_s - bondk_s*(rdist - bondeq_s)**bondp_s
                      end if
                   end do
                end if
@@ -860,24 +942,29 @@ module gpumodule
                         clinkeq_s = clink_d_eq
                         clinkp_s = clink_d_p
                      do i=1,nbondcl_d(id)
-                        if (numblocks_old*blocksize < bondcl_d(i,id).and. numblocks*blocksize >= bondcl_d(i,id)) then
+                        if ((numblocks_old-1)*blockDim%x < bondcl_d(i,id).and. (numblocks*blockDim%x >= bondcl_d(i,id))) then
                            jp = bondcl_d(i,id)
                            dx = ro_d(1,jp) - rotmx(id_int)
                            dy = ro_d(2,jp) - rotmy(id_int)
                            dz = ro_d(3,jp) - rotmz(id_int)
                            call PBCr2_cuda(dx,dy,dz,rdist)
                            E_s = E_s + clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
+                           !Eclink_s = Eclink_s + clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
 
                            dx = ro_d(1,jp) - rox(id_int)
                            dy = ro_d(2,jp) - roy(id_int)
                            dz = ro_d(3,jp) - roz(id_int)
                            call PBCr2_cuda(dx,dy,dz,rdist)
                            E_s = E_s - clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
+                           !Eclink_s = Eclink_s - clinkk_s*(sqrt(rdist) - clinkeq_s)**clinkp_s
                         end if
                      end do
                   end if
                end if
                E_g(id) = E_s
+               !Etwo_d(id) = Etwo_s
+               !Ebond_d(id) = Ebond_s
+               !Eclink_d(id) = Eclink_s
             end if
                call syncthreads
          end do
