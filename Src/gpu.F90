@@ -601,11 +601,11 @@ module gpumodule
                end if
                id = ((blockIDx%x-1) * blocksize + threadIDx%x)+ipartmin
                id_int = threadIDx%x
-               do i = 0, ceiling(real(nbuf_d)/blockDim%x) - 1
-                  if (id_int + i *blockDim%x <= nbuf_d) then
-                     ubuf_s(id_int + i *blockDim%x) = ubuf_d(id_int + i*blockDim%x)
-                  end if
-               end do
+              ! do i = 0, ceiling(real(nbuf_d)/blockDim%x) - 1
+                  !if (id_int + i *blockDim%x <= nbuf_d) then
+                  !   ubuf_s(id_int + i *blockDim%x) = ubuf_d(id_int + i*blockDim%x)
+                  !end if
+               !end do
 
                if (id <= np_s) then
                   rotmx = rotm_d(1,id)

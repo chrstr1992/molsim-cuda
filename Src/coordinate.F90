@@ -45,6 +45,9 @@
 !!  * \subpage radlimit
 !!  * \subpage ntrydef
 !!  * \subpage itestcoordinate
+!!  * \subpage ncoreshell
+!!  * \subpage rcsnwt
+!!  * \subpage ictcsnwt
 
 module CoordinateModule
 
@@ -140,11 +143,21 @@ module CoordinateModule
 !! **default:** `0`
 !! * Type of chain of strands (only \ref txsetconf = 'periodicnetwork').
    integer(4)    :: ictstrand
+!> \page ictcsnwt
+!! `integer` (1:\ref ncoreshell , 1:\ref nnwt )
+!! **default:** 1*nnwt*`0`
+!! * chain type in a layer of a network of network type inwt (only \ref txsetconf = 'network').
+   integer(4),   allocatable :: ictcsnwt(:,:)
 !> \page rnwt
-!! `real`(1:\ref nnwt)
+!! `real`(1:nnwt)
 !! **default:** \ref nnwt*`10.0`
 !! * Cropping sphere radius of networks of network type inwt (only \ref txsetconf = 'network').
    real(8),      allocatable :: rnwt(:)
+!> \page rcsnwt
+!! `real`(1:ncoreshell,1:\ref nnwt)
+!! **default:** \ref 1*nnwt*`10.0`
+!! * Cropping sphere radius of a layer in a network of network type inwt (only \ref txsetconf = 'network').
+   real(8),      allocatable :: rcsnwt(:,:)
 !> \page txoriginnwt
 !! `character(8)`(1:\ref nnwt)
 !! **default:** \ref nnwt*'`random`'
@@ -437,8 +450,8 @@ subroutine SetConfiguration
 
    namelist /nmlSetConfiguration/ txsetconf, nucell, rclow, rcupp, roshift,                          &
                                   radatset, lranori,  bondscl, anglemin,                             &
-                                  iptnode, ictstrand,                                                &
-                                  rnwt, txoriginnwt, shiftnwt,                                       &
+                                  iptnode, ictstrand, ictcsnwt,                                      &
+                                  rnwt, rcsnwt, txoriginnwt, shiftnwt, ncoreshell,                   &
                                   radlimit, ntrydef,                                                 &
                                   itestcoordinate
 
@@ -461,6 +474,9 @@ subroutine SetConfiguration
    end if
 
    if (lnetwork) then
+      if(.not.allocated(ncoreshell)) then
+         allocate(ncoreshell(nnwt))
+      end if
       if(.not.allocated(rnwt)) then
          allocate(rnwt(nnwt))
       end if
@@ -527,8 +543,18 @@ subroutine SetConfiguration
 
    if (lnetwork) then
       rnwt(1:nnwt)         = 10.0
+      ncoreshell           = 1
       txoriginnwt(1:nnwt)  = 'random'
       shiftnwt(1:3,1:nnwt) = Zero
+      if(.not.allocated(rcsnwt)) then
+         allocate(rcsnwt(5,nnwt))
+      end if
+      if(.not.allocated(ictcsnwt)) then
+         allocate(ictcsnwt(5,nnwt))
+      end if
+      rcsnwt                                 = 0.0
+      rcsnwt(1,1:nnwt)                       = 10.0
+      ictcsnwt                               = 0
    end if
 
    rewind(uin)
@@ -623,6 +649,7 @@ subroutine SetConfiguration
             end do
             do ict = 1, nct   ! one chain type can only be used in one network type
                if (count(ncctnwt(ict,1:nnwt) > 0) > 1) call stop(txroutine, 'chain type used for more than one network type', uout)   ! Cornelius Hofzumahaus
+               !** Test ob ictstrand = x gleich einem chain typ ist, der im Netzwerk ist
             end do
          end if
       end if
@@ -1633,8 +1660,7 @@ subroutine SetChainRandom !(iptset) iptset is not needed
          if ((ipt == iptnode) .or. (ict == ictstrand)) cycle ! exclude chains which are nodes or strands
          if (lhierarchical) then
             if(ihnpn(ip) /= 0) cycle                        ! exclude chains which are in hierarchical structure
-         end if
-         if (lnetwork) then
+         else if (lnetwork) then
             if (sum(ncctnwt(ict,1:nnwt)) > 0) cycle         ! exclude chains which are in finite network structure
          end if
       ! MORE
@@ -2227,7 +2253,8 @@ end subroutine SetPeriodicNetwork
 
 
 !  unit cell: diamond-like containing 8 nodes and 16 strands
-!  input variables: nnwt (nmlParticle), nnwnwt (nmlParticle), ncctnwt (nmlParticle), rnwt, iptclnwt (nmlParticle), txoriginnwt
+!  input variables: nnwt (nmlParticle), nnwnwt (nmlParticle), ncctnwt (nmlParticle), rnwt, iptclnwt (nmlParticle), txoriginnwt &
+!                   ncoreshell (nmlSetConfiguration), rcsnwt (nmlSetConfiguration), ictcsnwt (nmlSetConfiguration)
 !  boundary condition: txbc == 'xyz' or txbc == 'sph'
 
 subroutine SetNetwork(ipt)
@@ -2239,27 +2266,32 @@ subroutine SetNetwork(ipt)
 
    integer(4), intent(in)  :: ipt        ! particle type
 
-   integer(4)     :: iploc, jploc
+   integer(4)     :: iploc
    integer(4)     :: ic                  ! chain counter
    integer(4)     :: iseg                ! segment counter
    integer(4)     :: ip                  ! particle counter
+   integer(4)     :: jp
    integer(4)     :: npclend             ! counter crosslinkable strand particles
    integer(4)     :: ict                 ! chain type of strand
    integer(4)     :: inwt                ! network type counter
    integer(4)     :: inw                 ! network counter
+   integer(4)     :: icoreshell          ! core-shell counter
+   integer(4)     :: icorebeg            ! first layer which contains chains, 1 default, 2 for hollow networks
    integer(4)     :: ntry, itry          ! counter attempts to set gel
    integer(4)     :: nclmade             ! number of crosslinks formed
    integer(4), allocatable :: ipclbeg(:) ! id of particles that begin crosslinks
    integer(4), allocatable :: ipclend(:) ! id of particles that ends crosslinks
+   integer(4), allocatable :: npstrand(:) ! number of particles in a chain of a layer in a network
+   integer(4), allocatable :: jploc (:)
 
-   logical, allocatable, save :: lnwset(:)        ! .true., if network (1:nnw) set
-   real(8), allocatable, save :: rorigin(:,:)     ! coordinates of origin of networks
-
-   integer(4)                 :: inwglob, jnwglob ! global number of networks inw and jnw (1:nnw)
+   real(8)        :: strandlength             ! length of the unit cell
+   real(8)        :: rorigin(3)          ! coordinates of origin of network
+   real(8), allocatable    :: bondloc(:) ! bondlength between two particles inside a shell
+   real(8), allocatable    :: bondclloc(:) ! bondlength between a particle in a chain and a node
 
 ! ... calculated by SetNetworkPos
-
-   integer(4)     :: nnode, nstrand, nclnode
+   integer(4)     :: nnode, nclnode
+   integer(4), allocatable     :: nstrand(:)
    real(8), allocatable :: ronode(:,:)
    real(8), allocatable :: rostrand(:,:)
 
@@ -2267,19 +2299,69 @@ subroutine SetNetwork(ipt)
    logical        :: CheckPartOutsideBox, lWarnHCOverlap
 
    ntry = ntrydef
+   strandlength = 0.0
+   icorebeg     = 1
+
 
 ! ... determine network type
+
 
    if (count(ipt == iptclnwt(1:nnwt)) == 0) return   ! ipt is not a node
    do inwt = 1, nnwt                                 ! determine network type
       if (ipt == iptclnwt(inwt)) exit                ! ipt is a node of network type inwt
    end do
 
-! ... determine chain type of strand
+! allocate variables for core-shell-microgel
+   allocate(bondloc(ncoreshell(inwt)), nstrand(ncoreshell(inwt)), npstrand(ncoreshell(inwt)),jploc(ncoreshell(inwt)),bondclloc(nct))
+   bondloc = 0.0
+   nstrand = 0
+   npstrand = 0
+   jploc = 0
+   bondclloc(1:nct) = bond(1:nct)%eq
 
-   do ict = 1, nct   ! Currently only one chain type per network is allowed
-      if (ncctnwt(ict,inwt) > 0) exit
+! ... determine chain type of strand and set number of particles of one strand, the strandlength and the bondlength for each chain
+!     type. For core-shell microgels which have chains with different lengths, the larger chain is used for the calculation of the
+!     strandlength. The bondlength between two particles of the smaller chain is aligned to the strandlength.
+   do icoreshell = 1, ncoreshell(inwt)
+      do ict = 1, nct   ! Currently only one chain type per network is allowed
+
+         ! backup compatibility for microgels without a core
+         if (ncoreshell(inwt) == 1) then
+            rcsnwt(1,inwt) = rnwt(inwt)
+            if (sum(ictcsnwt(1:ncoreshell(inwt),inwt)) == 0) then
+               if (ncctnwt(ict,inwt) > 0) then
+                  bondloc(1) = bond(ict)%eq
+                  bondclloc(ict) = bond(ict)%eq
+                  ictcsnwt(1,inwt) = ict
+               end if
+            end if
+         end if
+
+         ! in case of core-shell microgels
+         if (ict /= ictcsnwt(icoreshell, inwt)) cycle
+         npstrand(icoreshell) = npct(ict)
+         if (bond(ict)%eq*(npct(ict)+1) > strandlength) then
+            strandlength = bond(ict)%eq*(npct(ict)+1)
+         end if
+      end do
    end do
+   if (ncoreshell(inwt) > 1) then
+      if (ictcsnwt(1, inwt) == 0) then
+         icorebeg = 2
+      end if
+      do icoreshell = icorebeg, ncoreshell(inwt)
+         bondloc(icoreshell) = strandlength / (npct(ictcsnwt(icoreshell,inwt)) + 1)
+         bondclloc(ictcsnwt(icoreshell,inwt)) = bondloc(icoreshell)
+      end do
+   end if
+
+   ! set starting local particle number. It is used to check if the right number of particles are setted in the routine.
+   jploc = 0
+   if (ncoreshell(inwt) > 1) then
+      do icoreshell = icorebeg, ncoreshell(inwt) - 1
+         jploc(icoreshell + 1) = sum(jploc(1:icoreshell)) + npct(ictcsnwt(icoreshell, inwt))*ncctnwt(ictcsnwt(icoreshell,inwt), inwt)
+      end do
+   end if
 
 ! ... check condition
 
@@ -2292,61 +2374,50 @@ subroutine SetNetwork(ipt)
    rostrand = 0.0E+00
 
 ! ... determine nnode, ronode, nstrand, rostrand, nclnode
-
-   call SetNetworkPos(shiftnwt(1:3,inwt), rnwt(inwt), bond(ict)%eq, npct(ict), nnode, ronode, nstrand, rostrand, nclnode)
+   call SetNetworkPos(shiftnwt(1:3,inwt), rcsnwt(1:ncoreshell(inwt),inwt), strandlength, bondloc(1:ncoreshell(inwt)), &
+   npstrand(1:ncoreshell(inwt)), nnode, ronode, nstrand(1:ncoreshell(inwt)), rostrand, nclnode, &
+   jploc(1:ncoreshell(inwt)), ncoreshell(inwt), icorebeg)
 
 ! ... when particle and chain number don't accord to the neccesary ones: stop excecution and write required numbers
-
-   if(nnode*nnwnwt(inwt) /= nppt(ipt) .or. nstrand*nnwnwt(inwt) /= ncct(ict)) then
+   if(nnode*nnwnwt(inwt) /= nppt(ipt) .or. sum(nstrand(icorebeg:ncoreshell(inwt)))*nnwnwt(inwt) /= sum(ncct(ictcsnwt(icorebeg:ncoreshell(inwt),inwt)))) then
       write(uout,'(a50,i0)') "failed to set network of network type:"       , inwt
-      write(uout,'(a50,i0)') "required number of chains:"                   , nstrand*nnwnwt(inwt)
+      do icoreshell = 1, ncoreshell(inwt)
+      write(uout,'(a50,i0)') "required number of chains: in layer"         ,  nstrand(icoreshell)*nnwnwt(inwt)
+      end do
       write(uout,'(a50,i0)') "required number of node particles:"           , nnode*nnwnwt(inwt)
       write(uout,'(a50,i0)') "required (total) number of strand particles:" , nstrand*nnwnwt(inwt)*npct(ict)
-      call Stop (txroutine, "Please adjust nppt(node) and ncct(strand)", uout)
+      call Stop (txroutine, "Please adjust nppt(node) and ncct(strands)", uout)
    end if
 
 ! ... allocate memory
 
-   allocate(ipclbeg(nnode), ipclend(2*nstrand))
+   allocate(ipclbeg(nnode), ipclend(2*sum(nstrand(1:ncoreshell(inwt)))))
    ipclbeg = 0
    ipclend = 0
 
-   if(.not.allocated(lnwset)) then
-      allocate(lnwset(nnw))
-      lnwset = .false.
-   end if
-
-   if(.not.allocated(rorigin)) then
-      allocate(rorigin(3,nnw))
-      rorigin = 0.0E+00
-   end if
-
 ! ... set gels
+
    maxnbondcl(ipt) = nclnode
-   inwglob = sum(nnwnwt(1:inwt-1))
 
    do inw = 1, nnwnwt(inwt)! loop over all networks of network type inwt
-      inwglob = inwglob + 1
-
 try:  do itry = 1, ntry    ! loop over attempts to set the gel
 
 !  ... set network origin
-
          if (txoriginnwt(inwt) == 'origin') then
-            rorigin(1:3,inwglob) = Zero
+            rorigin = Zero
          else if (txoriginnwt(inwt) == 'random') then
             if (lbcsph) then
                do
-                  rorigin(1,inwglob) = Two*sphrad*(Random(iseed) - Half)
-                  rorigin(2,inwglob) = Two*sphrad*(Random(iseed) - Half)
-                  rorigin(3,inwglob) = Two*sphrad*(Random(iseed) - Half)
-                  if (sum(rorigin(1:3,inwglob)**2) <= sphrad2) exit
+                  rorigin(1) = Two*sphrad*(Random(iseed) - Half)
+                  rorigin(2) = Two*sphrad*(Random(iseed) - Half)
+                  rorigin(3) = Two*sphrad*(Random(iseed) - Half)
+                  if (sum(rorigin(1:3)**2) <= sphrad2) exit
                end do
             else if(lbcbox) then
-               rorigin(1,inwglob) = boxlen(1)*(Random(iseed) - Half)
-               rorigin(2,inwglob) = boxlen(2)*(Random(iseed) - Half)
-               rorigin(3,inwglob) = boxlen(3)*(Random(iseed) - Half)
-               call PBC(rorigin(1,inwglob), rorigin(2,inwglob), rorigin(3,inwglob))
+               rorigin(1) = boxlen(1)*(Random(iseed) - Half)
+               rorigin(2) = boxlen(2)*(Random(iseed) - Half)
+               rorigin(3) = boxlen(3)*(Random(iseed) - Half)
+               call PBC(rorigin(1), rorigin(2), rorigin(3))
             else
                call Stop (txroutine, 'txbc is not compatible with origin position of network', uout)
             end if
@@ -2354,18 +2425,11 @@ try:  do itry = 1, ntry    ! loop over attempts to set the gel
             call Stop(txroutine,'invalid choice of txoriginnwt',uout)
          end if
 
-! ... test whether interpenetration with already set networks occurs
-
-         do jnwglob = 1, nnw
-            if ((inwglob == jnwglob) .or. .not.lnwset(jnwglob)) cycle ! cycle, if jnwglob is the same or a not yet set network
-            if (sum((rorigin(1:3,inwglob)-rorigin(1:3,jnwglob))**2.0) < (rnwt(inwt)+rnwt(inwtnwn(jnwglob)))**2.0) cycle try
-         end do
-
 ! ... set node particles
 
          do iploc = 1 , nnode
             ip = ipnpt(ipt) + iploc - 1 + (inw - 1)*nnode
-            ro(1:3,ip) = rorigin(1:3,inwglob) + ronode(1:3,iploc)
+            ro(1:3,ip) = rorigin(1:3) + ronode(1:3,iploc)
             call PBC(ro(1,ip),ro(2,ip),ro(3,ip))
             call SetPartOriRandom(iseed,ori(1,1,ip))              ! set random particle orientation
             call SetAtomPos(ip, ip, .false.)                      ! set atom positions
@@ -2376,35 +2440,42 @@ try:  do itry = 1, ntry    ! loop over attempts to set the gel
          end do
 
 ! ...  set strand particles
-
-         jploc = 0
+         jp = 0
          npclend = 0
-         do ic = icnct(ict) + (inw - 1)*nstrand, icnct(ict) + (inw)*nstrand - 1
-            do iseg = 1, npct(ict)
-               jploc = jploc + 1
-               ip = ipnsegcn(iseg,ic)
-               ro(1:3,ip) = rorigin(1:3,inwglob) + rostrand(1:3,jploc)
-               call PBC(ro(1,ip),ro(2,ip),ro(3,ip))
-               call SetPartOriRandom(iseed,ori(1,1,ip))              ! set random particle orientation
-               call SetAtomPos(ip, ip, .false.)                      ! set atom positions
-               if (lWarnHCOverlap(ip, radatset, .true.)) cycle try   ! check for hard-core overlap
-               if (CheckPartOutsideBox(ip)) cycle try                ! check that particle is inside bo
-               lpset(ip) =.true.                                     ! position accepted
-               if((iseg == 1) .or. (iseg == npct(ict))) then
-                  npclend = npclend + 1
-                  if (npclend > 2*nstrand) call stop(txroutine, 'npclend > 2*nstrand', uout)
-                  ipclend(npclend) = ip
-                  maxnbondcl(iptpn(ip)) = 2
-               end if
+         do icoreshell = icorebeg, ncoreshell(inwt)
+            do ic = icnct(ictcsnwt(icoreshell,inwt)) + (inw - 1)*nstrand(icoreshell), icnct(ictcsnwt(icoreshell,inwt)) + (inw)*nstrand(icoreshell) - 1
+               do iseg = 1, npct(ictcsnwt(icoreshell,inwt))
+                  jp = jp + 1
+                  ip = ipnsegcn(iseg,ic)
+                  ro(1:3,ip) = rorigin(1:3) + rostrand(1:3,jp)
+                  call PBC(ro(1,ip),ro(2,ip),ro(3,ip))
+                  call SetPartOriRandom(iseed,ori(1,1,ip))              ! set random particle orientation
+                  call SetAtomPos(ip, ip, .false.)                      ! set atom positions
+                  if (lWarnHCOverlap(ip, radatset, .true.)) cycle try   ! check for hard-core overlap
+                  if (CheckPartOutsideBox(ip)) cycle try                ! check that particle is inside bo
+                  lpset(ip) =.true.                                     ! position accepted
+                  if((iseg == 1) .or. (iseg == npct(ictcsnwt(icoreshell,inwt)))) then
+                     npclend = npclend + 1
+                     if (npclend > 2*sum(nstrand(1:ncoreshell(inwt)))) call stop(txroutine, 'npclend > 2*nstrand', uout)
+                     ipclend(npclend) = ip
+                  end if
+               end do
             end do
          end do
-
 ! ... make crosslinks
 
-         call MakeCrossLink(nnode, npclend, ipclbeg, ipclend, (bond(1:nct)%eq)**2, nclmade)
+!!!         write(*,*) txroutine
+!!!         write(*,*) 'nnode, npclend',nnode,npclend
+!!!         write(*,*) 'ipclbeg',ipclbeg(nnode)
+!!!         write(*,*) 'ipclend',ipclend(npclend)
+
+         call MakeCrossLink(nnode, npclend, ipclbeg, ipclend, (bondclloc(1:nct))**2, nclmade)
+!!!         write(*,*) txroutine, 'nclmade',nclmade
          ncl = ncl + nclmade
+!!!         write(*,*) txroutine, 'ncl (updated)',ncl
 
          exit
+
       end do try
 
       if (itry > ntry) then                         ! number of  attempts exceeds the maximal one ?
@@ -2412,41 +2483,56 @@ try:  do itry = 1, ntry    ! loop over attempts to set the gel
          call Stop(txroutine, 'random configuration failed, itry > ntry', uout)
       end if
 
-      lnwset(inwglob) = .true.
    end do
 
    deallocate(ronode, rostrand)
    deallocate(ipclbeg, ipclend)
+   deallocate(nstrand, bondloc,bondclloc, npstrand)
 
 end subroutine SetNetwork
 
 !........................................................................
-
-subroutine SetNetworkPos(shiftxyz, radgel, bondlen, npstrand, nnode, ronodeout, nstrand, rostrandout, nclnode)
+subroutine SetNetworkPos(shiftxyz, radgel, strandlength, bondlen, npstrand, nnode, ronodeout, nstrand, rostrandout, nclnode, &
+      jploc, ncsloc, icorebeg)
 
    use CoordinateModule
    implicit none
 
    real(8),    intent(in)  :: shiftxyz(3)             ! shift unit cell of diamond cell by shiftxyz in the respective direction
-   real(8),    intent(in)  :: radgel                  ! radius of gel
-   real(8),    intent(in)  :: bondlen                 ! length of strand bond-length
-   integer(4), intent(in)  :: npstrand                ! number of particles in strand
+   integer(4), intent(in)  :: ncsloc                  ! ncoreshell(inwt)
+   real(8),    intent(in)  :: radgel(1:ncsloc)        ! radius of gel
+   real(8),    intent(in)  :: bondlen(1:ncsloc)       ! length of strand bond-lengths
+   real(8),    intent(in)  :: strandlength            ! largest bond length for calculation of cell legth
+   integer(4), intent(in)  :: npstrand(1:ncsloc)      ! number of particles in strand
+   integer(4), intent(in)  :: icorebeg                ! default: 1, for hollow networks: 2
    integer(4), intent(out) :: nnode                   ! number of nodes
    real(8),    allocatable :: ronode(:,:)             ! coordinates of nodes
+   real(8),    allocatable :: ronode2(:)              ! coordinates of nodes
    real(8),    intent(out) :: ronodeout(3,np_alloc)   ! coordinates of nodes for output
-   integer(4), intent(out) :: nstrand                 ! number of stand chains
+   integer(4), intent(out) :: nstrand(1:ncsloc)       ! number of stand chains
    real(8),    allocatable :: rostrand(:,:)           ! coordinates of strand particles
    real(8),    intent(out) :: rostrandout(3,np_alloc) ! coordinates of strand particles for output
    integer(4), intent(out) :: nclnode                 ! number of crosslinks of a node (diamond: nclnode = 4)
+   integer(4), intent(inout)  :: jploc(1:ncsloc)      ! local particle number
+   integer(4), allocatable  :: jplocstart(:)          ! local particle number of the first particle of particle type ipt in
+                                                      ! icoreshell
+   integer(4)     :: npart_strand(1:ncsloc)           ! jploc(icoreshell) + number of particles which coordinats are already
+                                                      ! calculated
 
    character(40), parameter :: txroutine ='SetNetworkPos'
 
 !  ... network parameters
 
-   real(8)     :: xbondlen       ! length of bond in strand along axis of unit cell
-   real(8)     :: celllen        ! length of one unit cell
-   integer(4)  :: ncell          ! number of unit cells in x,y,z direction
-   real(8)     :: radgel2        ! square of network radius
+   real(8)     :: xbondlen(1:ncsloc)       ! length of bond in strand along axis of unit cell
+   real(8)     :: celllen                  ! length of one unit cell
+   integer(4)  :: ncell                    ! number of unit cells in x,y,z direction
+   real(8)     :: radgel2                  ! square of network radius
+
+
+! test
+
+integer(4)  :: inode(2)
+integer(4)  :: nccs(7)
 
 ! ... from SetDiamond
 
@@ -2454,7 +2540,7 @@ subroutine SetNetworkPos(shiftxyz, radgel, bondlen, npstrand, nnode, ronodeout, 
    real(8)        :: rol(3,8)    ! coordinates of the lattice point in a unit cell ranging from (0,0,0) to (1,1,1)
    real(8)        :: oril(3,3,8) ! orientations of particle frame at differen lattice points in a unit cell
 
-   integer(4)     :: ilp, ix, iy, iz, idir, iseg, jp, iploc, jploc, npart_strand
+   integer(4)     :: ilp, ix, iy, iz, idir, iseg, jp, iploc, icoreshell, jcoreshell
    real(8)        :: InvFlt
 
    real(8), allocatable :: vhelp(:,:)
@@ -2472,33 +2558,43 @@ subroutine SetNetworkPos(shiftxyz, radgel, bondlen, npstrand, nnode, ronodeout, 
                                                          -One, +One, -One ], &
                                                                      [ 3, 4 ])
 
+   inode(1:2) = 0
+   nccs = 0
+
    nclnode = 4                                     ! each node has 4 crosslinks
    call SetDiamond(nlp,rol,oril)                   ! get diamond unit cell informations
 
  ! ... shift coordinates of diamond lattice
-   rol(1,1:8) = modulo(real(rol(1,1:8)+1-shiftxyz(1)),1.0)
-   rol(2,1:8) = modulo(real(rol(2,1:8)+1-shiftxyz(2)),1.0)
-   rol(3,1:8) = modulo(real(rol(3,1:8)+1-shiftxyz(3)),1.0)
+   rol(1,1:8) = modulo(rol(1,1:8)+1-shiftxyz(1),1.0)
+   rol(2,1:8) = modulo(rol(2,1:8)+1-shiftxyz(2),1.0)
+   rol(3,1:8) = modulo(rol(3,1:8)+1-shiftxyz(3),1.0)
 
-   radgel2 = radgel**2                             ! network radius squared
-   celllen = Four*sqrt(Third)*bondlen*(npstrand+1) ! length of one cubic unit cell
-   xbondlen = sqrt(Third) * bondlen                ! bond length projected on an external axis
-   ncell = int(Two*radgel*InvFlt(celllen)) + 1     ! number of required unit cells
-   if(modulo(ncell,2) == 1) ncell = ncell + 1      ! odd ncell -> even ncell in order to guarantee particle at ( 0 0 0 )
+   radgel2 = radgel(ncsloc)**2                             ! network radius squared
+   celllen = Four*sqrt(Third)*strandlength                        ! length of one cubic unit cell
+   do icoreshell = 1, ncsloc
+   xbondlen(icoreshell) = sqrt(Third) * bondlen(icoreshell)       ! bond length projected on an external axis
+   end do
+   ncell = int(Two*radgel(ncsloc)*InvFlt(celllen)) + 1     ! number of required unit cells
+   if(modulo(ncell,2) == 1) ncell = ncell + 1                     ! odd ncell -> even ncell in order to guarantee particle at ( 0 0 0 )
 
    nnode = 0
    nstrand = 0
    npart_strand = 0
    if(.not.allocated(rostrand)) then
-      allocate(rostrand(3,np_alloc), ronode(3,np_alloc))
+      allocate(rostrand(3,np_alloc), ronode(3,np_alloc), ronode2(3), jplocstart(1:ncsloc))
       rostrand = 0.0E+00
       ronode = 0.0E+00
+      ronode2 = 0.0E+00
    end if
    rostrand = 0.00E+00
    ronode   = 0.00E+00
    ronodeout   = 0.00E+00
    rostrandout   = 0.00E+00
 
+   do icoreshell = icorebeg, ncsloc
+    npart_strand(icoreshell) = jploc(icoreshell)
+    jplocstart(icoreshell) = jploc(icoreshell)
+   end do
 ! ... loop over all lattice points and try to set particles at those
 
    do ilp = 1, nlp               ! loop over all lattice positions of one unit cell
@@ -2523,49 +2619,106 @@ subroutine SetNetworkPos(shiftxyz, radgel, bondlen, npstrand, nnode, ronodeout, 
                ronode(2,iploc) = (iy - Half*ncell + rol(2,ilp))*celllen
                ronode(3,iploc) = (iz - Half*ncell + rol(3,ilp))*celllen
                if(sum(ronode(1:3,iploc)**2) > radgel2) cycle    ! restrict to inside radgel
+               if (icorebeg == 2) then
+                  if (sum(ronode(1:3,iploc)**2) < (radgel(1))**2) cycle
+               end if
                nnode = nnode + 1                                ! update nnode
+
 
 ! ... set strand particles
 
                do idir = 1, 4                                   ! loop over all four directions from each node particle
-     segment:     do iseg = 1, npstrand                         ! loop over all particles of each chain
-                  jploc = npart_strand+1
-                  if(jploc > size(rostrand,2)) then
-                     if (allocated(vhelp)) deallocate(vhelp)
-                     allocate(vhelp(3,size(rostrand,2)))
-                     vhelp = 0.0E+00
-                     vhelp = rostrand
-                     deallocate(rostrand)
-                     allocate(rostrand(3,2*size(vhelp,2)))
-                     rostrand = 0.0E+00
-                     rostrand = vhelp
-                  end if
-                  if(ilp >= 5) then                             ! distinguish between node symmetry
-                        if((idir == 1) .or. (idir == 3)) then   ! chains starting at node
-                           rostrand(1:3,jploc) = ronode(1:3,iploc) + iseg*signgel(1:3,idir)*xbondlen
-                        else                                    ! chains arriving at node
-                           rostrand(1:3,jploc) = ronode(1:3,iploc) + (npstrand-iseg+1)*signgel(1:3,idir)*xbondlen
-                        end if
+                  ! ... set icoreshell to get the right chain type
+                if( ncsloc > 1 ) then
+    coreshell:     do icoreshell = 1, ncsloc - 1
+                     jcoreshell = icoreshell + 1
+                     if (sum(ronode(1:3,iploc)**2) > radgel(icoreshell)**2) cycle
+                     jcoreshell = icoreshell
+                     if(ilp >= 5) then                             ! distinguish between node symmetry
+                           ronode2(1:3) = (ronode(1:3,iploc) + (npstrand(icoreshell)+1)*signgel(1:3,idir)*xbondlen(icoreshell))
+                           if( sum(ronode2(1:3)**2) >= radgel(icoreshell)**2) then
+                           jcoreshell = icoreshell + 1
+                           end if
                      else
-                        if((idir == 2) .or. (idir == 4)) then   ! chains starting at node
-                           rostrand(1:3,jploc) = ronode(1:3,iploc) + iseg*signgel2(1:3,idir)*xbondlen
-                        else                                    ! chains arriving at node
-                           rostrand(1:3,jploc) = ronode(1:3,iploc) + (npstrand-iseg+1)*signgel2(1:3,idir)*xbondlen
-                        end if
+                           ronode2(1:3) = (ronode(1:3,iploc) + (npstrand(icoreshell)+1)*signgel2(1:3,idir)*xbondlen(icoreshell))
+                           if( sum(ronode2(1:3)**2) >= radgel(icoreshell)**2) then
+                           jcoreshell = icoreshell + 1
+                           end if
                      end if
-                     do jp = 1, jploc -1                        ! check if strand particle already exist
-                        if(sum((rostrand(1:3,jp) - rostrand(1:3,jploc))**2) < ddelta ) exit segment
-                     end do
-                     npart_strand = npart_strand + 1            ! update npart_strand
-                     if(iseg == npstrand) nstrand = nstrand + 1 ! update nstrand
-                  end do segment
+                     if (sum(ronode(1:3,iploc)**2) <= radgel(icoreshell)**2) exit coreshell
+                   end do coreshell
+                else
+                   jcoreshell = 1
+                end if
+
+                inode(jcoreshell) = inode(jcoreshell) + 1
+
+
+     segment:     do iseg = 1, npstrand(jcoreshell)                         ! loop over all particles of each chain
+                     jploc(jcoreshell) = npart_strand(jcoreshell)+1
+                     if(jcoreshell < ncsloc) then
+                        if( jploc(jcoreshell) == (jplocstart(jcoreshell + 1) + 1)) exit segment
+                     end if
+                     if(jploc(jcoreshell) > size(rostrand,2)) then
+                        if (allocated(vhelp)) deallocate(vhelp)
+                        allocate(vhelp(3,size(rostrand,2)))
+                        vhelp = 0.0E+00
+                        vhelp = rostrand
+                        deallocate(rostrand)
+                        allocate(rostrand(3,2*size(vhelp,2)))
+                        rostrand = 0.0E+00
+                        rostrand = vhelp
+                     end if
+                     if(ilp >= 5) then                             ! distinguish between node symmetry
+                           if((idir == 1) .or. (idir == 3)) then   ! chains starting at node
+                              rostrand(1:3,jploc(jcoreshell)) = ronode(1:3,iploc) + iseg*signgel(1:3,idir)*xbondlen(jcoreshell)
+                           else                                    ! chains arriving at node
+                              rostrand(1:3,jploc(jcoreshell)) = ronode(1:3,iploc) + (npstrand(jcoreshell)-iseg+1)*signgel(1:3,idir)*xbondlen(jcoreshell)
+                           end if
+                        else
+                           if((idir == 2) .or. (idir == 4)) then   ! chains starting at node
+                              rostrand(1:3,jploc(jcoreshell)) = ronode(1:3,iploc) + iseg*signgel2(1:3,idir)*xbondlen(jcoreshell)
+                           else                                    ! chains arriving at node
+                              rostrand(1:3,jploc(jcoreshell)) = ronode(1:3,iploc) + (npstrand(jcoreshell)-iseg+1)*signgel2(1:3,idir)*xbondlen(jcoreshell)
+                           end if
+                        end if
+                        do jp = 1, jploc(jcoreshell) -1                        ! check if strand particle already exist
+                           if(sum((rostrand(1:3,jp) - rostrand(1:3,jploc(jcoreshell)))**2) < ddelta ) exit segment
+
+                        end do
+                        npart_strand(jcoreshell) = npart_strand(jcoreshell) + 1            ! update npart_strand
+                        if(iseg == npstrand(jcoreshell))  nstrand(jcoreshell) = nstrand(jcoreshell) + 1 ! update nstrand
+
+
+                        if (sum(rostrand(1:3,jploc(jcoreshell))**2) < sum(([1.0,1.0,-1.0]*55.0*sqrt(Third))**2)) then
+                           nccs(1) = nccs(1) + 1
+                        else if(sum(rostrand(1:3,jploc(jcoreshell)))**2 < sum(([2.0,2.0,0.0]*55.0*sqrt(Third))**2)) then
+                           nccs(2) = nccs(2) + 1
+                        else if(sum(rostrand(1:3,jploc(jcoreshell)))**2 < sum(([3.0,3.0,-1.0]*55.0*sqrt(Third))**2)) then
+                           nccs(3) = nccs(3) + 1
+                        else if(sum(rostrand(1:3,jploc(jcoreshell)))**2 < sum(([4.0,4.0,0.0]*55.0*sqrt(Third))**2)) then
+                           nccs(4) = nccs(4) + 1
+                        else if(sum(rostrand(1:3,jploc(jcoreshell)))**2 < sum(([5.0,5.0,-1.0]*55.0*sqrt(Third))**2)) then
+                           nccs(5) = nccs(5) + 1
+                        else if(sum(rostrand(1:3,jploc(jcoreshell)))**2 < sum(([6.0,6.0,-1.0]*55.0*sqrt(Third))**2)) then
+                           nccs(6) = nccs(6) + 1
+                        else
+                           nccs(7) = nccs(7) + 1
+                        end if
+
+
+
+                     end do segment
                end do
             end do
          end do
       end do
    end do
 
+   print *, nnode, nstrand(1:ncsloc), inode(1:ncsloc), nccs(1:7)
+
    if (allocated(vhelp)) deallocate(vhelp)
+   if (allocated(jplocstart)) deallocate(jplocstart)
 
    rostrandout = rostrand(1:3,1:np_alloc)
    ronodeout   = ronode(1:3,1:np_alloc)
@@ -2807,8 +2960,10 @@ end function CheckTooFoldedChain
 !************************************************************************
 !> \page coordinate coordinate.F90
 !! **MakeCrossLink**
-!! *make crosslinks between particles labeled clbeg and particles labeled clend on the basis of their separation*
+!! *make crosslinks between particles labeled clbeg and particles labeled clend*
 !************************************************************************
+
+!     on the basis of their separation
 
 !                     npclbeg, ipclbeg
 !                     npclend, lpclend                nbondcl, bondcl
@@ -2942,6 +3097,4 @@ subroutine StoreInteger(mnxxx, ip, nxxx, ipxxx)
    end if
 
 end subroutine StoreInteger
-
-
 
