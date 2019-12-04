@@ -10,8 +10,7 @@ jobs:
     steps:
        #- uses: actions/molsim-cuda@master
     - name: Generate test-file
-    #run: grep "Auto" test.txt
-      run: ls
+      run: git clone git@github.com:chrstr1992/molsim-cuda.git
       shell: bash
     - name: Run a multi-line script
       run: |
