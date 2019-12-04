@@ -11,7 +11,7 @@ jobs:
        #- uses: actions/molsim-cuda@master
     - name: Generate test-file
     #run: grep "Auto" test.txt
-      run: echo $PATH
+      run: pwd
       shell: bash
     - name: Run a multi-line script
       run: |
