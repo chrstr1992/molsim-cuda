@@ -12,6 +12,9 @@ jobs:
     - name: Generate test-file
       run: git clone git@github.com:chrstr1992/molsim-cuda.git
       shell: bash
+      env:
+         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN}}
+
     - name: Run a multi-line script
       run: |
         echo Add other actions to build,
