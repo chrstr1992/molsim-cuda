@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-       - uses: chrstr1992/molsim-cuda@master
+       - uses: actions/molsim-cuda@master
     - name: Generate test-file
       run: grep "Auto" test.txt
       shell: bash
