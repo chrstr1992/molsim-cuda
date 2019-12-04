@@ -10,7 +10,8 @@ jobs:
     steps:
        #- uses: actions/molsim-cuda@master
     - name: Generate test-file
-      run: grep "Auto" test.txt
+    #run: grep "Auto" test.txt
+      run: echo $PATH
       shell: bash
     - name: Run a multi-line script
       run: |
