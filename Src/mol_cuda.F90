@@ -90,7 +90,6 @@ module mol_cuda
    real(fp_kind), device, allocatable :: eps(:)
 
    integer(4), allocatable :: seedsnp(:)
-   integer(4), device, allocatable :: seeds_d(:)
 
    real(fp_kind), device :: beta_d
 
@@ -101,6 +100,20 @@ module mol_cuda
 
    real(8) :: u_aux
    integer(4), device :: iseed_d
+      !for random generators
+      real(8),device :: am_dev
+      integer(k4b),device :: ix_dev=-1,iy_dev=-1
+      integer(k4b),device :: ix_dev2=-1,iy_dev2=-1
+      integer, parameter :: k4b_d=selected_int_kind(9) ! = 4 on intel fortran and gfortran
+      real(8), device, allocatable :: am_d(:)
+      integer(k4b),device, allocatable :: ix_d(:),iy_d(:)
+      integer(4), allocatable :: seeds(:)
+      integer(4),device, allocatable :: seeds_d(:)
+      integer(4) :: icounter
+      integer(4),device :: icounter_d
+      integer(4) :: icounter2
+      integer(4),device :: icounter2_d
+
 
    contains
 
@@ -375,53 +388,6 @@ subroutine TransferStatsToHost
 end subroutine TransferStatsToHost
 
 
-!************************************************************************
-!> \page PBCr2_cuda
-!! **PBCr2_cuda**
-!! *apply periodic boundary conditions and calculate r**2 on GPU*
-!************************************************************************
-
-
-attributes(device) subroutine PBCr2_cuda(dx,dy,dz,r2)!,boxlen,boxlen2,lPBC,lbcbox,&
-                              !lbcrd,lbcto)
-
-   implicit none
-
-   real(fp_kind), intent(inout) :: dx, dy, dz
-   real(fp_kind), intent(inout) :: r2
-!   real(8), intent(inout)  :: boxlen, boxlen2
-!   logical, intent(inout)  :: lPBC, lbcbox, lbcrd, lbcto
-   !real(8)              :: Threehalf = 1.5d0
-   !real(8)              :: SqTwo = sqrt(2.0d0)
-
-   if (lPBC_d) then                                                              ! periodic boundary condition
-      if (lbcbox_d) then                                                         ! box-like cell
-         if (abs(dx) > boxlen2_d(1)) dx = dx - sign(dpbc_d(1),dx)
-         if (abs(dy) > boxlen2_d(2)) dy = dy - sign(dpbc_d(2),dy)
-         if (abs(dz) > boxlen2_d(3)) dz = dz - sign(dpbc_d(3),dz)
-      else if (lbcrd_d) then                                                     ! rhombic dodecahedral cell
-         if (abs(dx) > boxlen2_d(1)) dx = dx - sign(boxlen_d(1),dx)
-         if (abs(dy) > boxlen2_d(2)) dy = dy - sign(boxlen_d(2),dy)
-         if (abs(dz) > boxlen2_d(3)) dz = dz - sign(boxlen_d(3),dz)
-         if (abs(dx) + abs(dy) + SqTwo_d*abs(dz) > boxlen_d(1)) then
-            dx = dx - sign(boxlen2_d(1),dx)
-            dy = dy - sign(boxlen2_d(2),dy)
-            dz = dz - sign(boxlen2_d(3),dz)
-         end if
-      else if (lbcto_d) then                                                     ! truncated octahedral cell
-         if (abs(dx) > boxlen2_d(1)) dx = dx - sign(boxlen_d(1),dx)
-         if (abs(dy) > boxlen2_d(2)) dy = dy - sign(boxlen_d(2),dy)
-         if (abs(dz) > boxlen2_d(3)) dz = dz - sign(boxlen_d(3),dz)
-         if (abs(dx) + abs(dy) + abs(dz) > ThreeHalf_d*boxlen2_d(1)) then
-            dx = dx - sign(boxlen2_d(1),dx)
-            dy = dy - sign(boxlen2_d(2),dy)
-            dz = dz - sign(boxlen2_d(3),dz)
-         end if
-      end if
-   end if
-   r2 = dx**2+dy**2+dz**2
-
-end subroutine PBCr2_cuda
 
 subroutine GenerateSeeds
 
@@ -441,19 +407,6 @@ subroutine GenerateSeeds
 
 end subroutine
 
- attributes(device) subroutine PBC_cuda(dx, dy, dz)
-
- use precision_m
- implicit none
- real(fp_kind), intent(inout)  :: dx, dy, dz
-
- if (lpbc_d) then
-    if (abs(dx) > boxlen2_d(1)) dx = dx - dpbc_d(1) * ANINT(dx*boxleni_d(1))
-    if (abs(dy) > boxlen2_d(2)) dy = dy - dpbc_d(2) * ANINT(dy*boxleni_d(2))
-    if (abs(dz) > boxlen2_d(3)) dz = dz - dpbc_d(3) * ANINT(dz*boxleni_d(3))
- end if
-
- end subroutine PBC_cuda
 
 
 

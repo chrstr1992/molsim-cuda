@@ -363,7 +363,7 @@ attributes(global) subroutine UTwoBodyANew_cuda(lhsoverlap)
                goto 400
              end if
            end if
-           call PBCr2_cuda(dx,dy,dz,r2)
+          ! call PBCr2_cuda(dx,dy,dz,r2)
            if (lellipsoid_d) Then
            ! if (EllipsoidOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp),radellipsoid2,aellipsoid)) goto 400
            end if

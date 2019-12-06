@@ -2686,21 +2686,9 @@ module Random_Module
 
       integer, parameter :: k4b=selected_int_kind(9) ! = 4 on intel fortran and gfortran
       real(8) :: am
-      real(8),device :: am_dev
       integer(k4b) :: ix=-1,iy=-1
       integer(k4b) :: ix2=-1,iy2=-1
-      integer(k4b),device :: ix_dev=-1,iy_dev=-1
-      integer(k4b),device :: ix_dev2=-1,iy_dev2=-1
 !      real(8)     :: random
-      integer, parameter :: k4b_d=selected_int_kind(9) ! = 4 on intel fortran and gfortran
-      real(8), device, allocatable :: am_d(:)
-      integer(k4b),device, allocatable :: ix_d(:),iy_d(:)
-      integer(4), allocatable :: seeds(:)
-      integer(4), device, allocatable :: seeds_d(:)
-      integer(4) :: icounter
-      integer(4),device :: icounter_d
-      integer(4) :: icounter2
-      integer(4),device :: icounter2_d
       !integer(k4b), device, allocatable :: k_d(:)
 
 
@@ -2730,29 +2718,6 @@ module Random_Module
          Random_int = ceiling(a+(b-a)*am*ior(iand(im,ieor(ix,iy)),1))     !combine the two generators with masking to ensure nonzero value.
       end function Random_int
 
-      attributes(device) subroutine Random_d(idum,prandom,id)
-         use precision_m
-         implicit none
-         integer(4), intent(inout) :: idum
-         real(fp_kind), intent(inout) :: prandom
-         integer(k4b), parameter :: ia=16807,im=2147483647,iq=127773,ir=2836
-         integer(4), intent(in) :: id
-         integer(k4b) :: k_d
-         if (idum <= 0 .or. iy_d(id) < 0) then           !initialize.
-            am_d(id)=nearest(1.0,-1.0)/im
-            iy_d(id)=ior(ieor(888889999,abs(idum)),1)
-            ix_d(id)=ieor(777755555,abs(idum))
-            idum=abs(idum)+1                          !set idum positive.
-         end if
-         ix_d(id)=ieor(ix_d(id),ishft(ix_d(id),13))                  !marsaglia shift sequence with period 2^32 − 1.
-         ix_d(id)=ieor(ix_d(id),ishft(ix_d(id),-17))
-         ix_d(id)=ieor(ix_d(id),ishft(ix_d(id),5))
-         k_d=iy_d(id)/iq                                   !park-miller sequence by schrage’s method, period 2^31 − 2.
-         iy_d(id)=ia*(iy_d(id)-k_d*iq)-ir*k_d
-         if (iy_d(id) < 0) iy_d(id)=iy_d(id)+im
-         prandom= am_d(id)*ior(iand(im,ieor(ix_d(id),iy_d(id))),1)     !combine the two generators with masking to ensure nonzero value.
-      end subroutine Random_d
-
       function Random_h(idum)
          implicit none
          integer(k4b), intent(inout) :: idum
@@ -2780,59 +2745,6 @@ module Random_Module
         ! print *, "Random ", Random_h
       end function Random_h
 
-      attributes(device) function Random_dev(idum)
-         implicit none
-         integer(k4b), intent(inout) :: idum
-         real(8) :: Random_dev
-         integer(k4b), parameter :: ia=16807,im=2147483647,iq=127773,ir=2836
-         integer(k4b)   :: k
-         !icounter_d = icounter_d + 1
-         !write(*,*) "icounter: ", icounter_d
-         if (idum <= 0 .or. iy_dev < 0) then           !initialize.
-            am_dev=nearest(1.0,-1.0)/im
-            iy_dev=ior(ieor(888889999,abs(idum)),1)
-            ix_dev=ieor(777755555,abs(idum))
-            idum=abs(idum)+1                          !set idum positive.
-         end if
-         ix_dev=ieor(ix_dev,ishft(ix_dev,13))                  !marsaglia shift sequence with period 2^32 − 1.
-         ix_dev=ieor(ix_dev,ishft(ix_dev,-17))
-         ix_dev=ieor(ix_dev,ishft(ix_dev,5))
-         k=iy_dev/iq                                   !park-miller sequence by schrage’s method, period 2^31 − 2.
-         iy_dev=ia*(iy_dev-k*iq)-ir*k
-         if (iy_dev < 0) iy_dev=iy_dev+im
-         Random_dev=am_dev*ior(iand(im,ieor(ix_dev,iy_dev)),1)     !combine the two generators with masking to ensure nonzero value.
-        ! print *, "am ", am_dev
-        ! print *, "ix ", ix_dev
-        ! print *, "iy ", iy_dev
-        ! print *, "Random ", Random_dev
-      end function Random_dev
-
-      attributes(device) function Random_dev2(idum)
-         implicit none
-         integer(k4b), intent(inout) :: idum
-         real(8) :: Random_dev2
-         integer(k4b), parameter :: ia=16807,im=2147483647,iq=127773,ir=2836
-         integer(k4b)   :: k
-         !icounter2_d = icounter2_d + 1
-         !write(*,*) "icounter2: ", icounter2_d
-         if (idum <= 0 .or. iy_dev2 < 0) then           !initialize.
-            am_dev=nearest(1.0,-1.0)/im
-            iy_dev2=ior(ieor(888889999,abs(idum)),1)
-            ix_dev2=ieor(777755555,abs(idum))
-            idum=abs(idum)+1                          !set idum positive.
-         end if
-         ix_dev2=ieor(ix_dev2,ishft(ix_dev2,13))                  !marsaglia shift sequence with period 2^32 − 1.
-         ix_dev2=ieor(ix_dev2,ishft(ix_dev2,-17))
-         ix_dev2=ieor(ix_dev2,ishft(ix_dev2,5))
-         k=iy_dev2/iq                                   !park-miller sequence by schrage’s method, period 2^31 − 2.
-         iy_dev2=ia*(iy_dev2-k*iq)-ir*k
-         if (iy_dev2 < 0) iy_dev2=iy_dev2+im
-         Random_dev2=am_dev*ior(iand(im,ieor(ix_dev2,iy_dev2)),1)     !combine the two generators with masking to ensure nonzero value.
-        ! print *, "am ", am_dev
-        ! print *, "ix ", ix_dev2
-        ! print *, "iy ", iy_dev2
-        ! print *, "Random ", Random_dev2
-      end function Random_dev2
 
       function Random_h2(idum)
          implicit none
