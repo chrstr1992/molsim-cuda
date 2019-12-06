@@ -219,10 +219,14 @@ ifeq ($(ARCH), PGFORTRAN)
   COMP_SER = pgfortran
   LINK_SER = $(COMP_SER)
   OPT_SER2  = -O0 -Mcuda
-  OPT_SER  = -O3 -Mcuda -Mcuda=cc70
+  OPT_SER  = -O3 -Mcuda -Mcuda=cc70 -Mpreprocess -DDOUBLE
+  OPT_debug  := -g -Mcuda=debug -Mcuda=llvm -Mcuda=rdc -Mcuda=maxregcount:0 -Mpreprocess -DDOUBLE
 #-Mcuda=maxregcount:60
-  ifeq ($(mode),double)
-    OPT_SER += -Mpreprocess -DDOUBLE
+  ifeq ($(mode),single)
+    OPT_SER = -O3 -Mcuda -Mcuda=cc70
+  endif
+  ifeq ($(mode),debug)
+    OPT_SER = $(OPT_debug)
   endif
 
   COMP_PAR = /usr/lib64/openmpi/bin/mpif90
